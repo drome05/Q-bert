@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: chat-service
-          image: ghcr.io/drome05/chat-service:27b69d6f5c86da14ae118b3f1d5d3b909443ba18
+          image: ghcr.io/drome05/chat-service:f3132855e5c3ae3845c9b3a66392244e9f450afe
           imagePullPolicy: IfNotPresent
           env:
             # Ollama runs natively on this same EC2 host, outside k3s --
