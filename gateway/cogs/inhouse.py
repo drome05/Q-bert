@@ -101,10 +101,28 @@ class VolunteerCaptainView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         session = self.cog.session
-        if session is None or str(interaction.user.id) not in session.players:
-            await interaction.response.send_message("Only queued players can volunteer.", ephemeral=True)
+        if session is None:
             return False
-        return True
+        # Staff can act here even if they're not one of the 10 queued
+        # players -- needed so volunteering never becomes a hard dead end
+        # (e.g. solo-testing with debug-fill, where fake players can never
+        # click "Volunteer").
+        if str(interaction.user.id) in session.players or await is_staff(interaction):
+            return True
+        await interaction.response.send_message("Only queued players (or staff) can act here.", ephemeral=True)
+        return False
+
+    async def _confirm_captains(self, interaction: discord.Interaction, note: str = ""):
+        session = self.cog.session
+        session.captains = self.volunteers[:2]
+        session.pool = [p for p in session.players if p not in session.captains]
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            content=f"{note}Captains: <@{session.captains[0]}> and <@{session.captains[1]}>! Choose a draft method:",
+            view=None,
+        )
+        await self.cog.start_draft_method_vote(interaction.channel, session)
 
     @discord.ui.button(label="Volunteer", style=discord.ButtonStyle.success)
     async def volunteer(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -116,17 +134,20 @@ class VolunteerCaptainView(discord.ui.View):
         if len(self.volunteers) < 2:
             await interaction.response.edit_message(content=f"Who wants to captain? Volunteered so far: {', '.join(f'<@{v}>' for v in self.volunteers)}")
             return
+        await self._confirm_captains(interaction)
 
-        session = self.cog.session
-        session.captains = self.volunteers[:2]
-        session.pool = [p for p in session.players if p not in session.captains]
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(
-            content=f"Captains: <@{session.captains[0]}> and <@{session.captains[1]}>! Choose a draft method:",
-            view=None,
-        )
-        await self.cog.start_draft_method_vote(interaction.channel, session)
+    @discord.ui.button(label="Force Remaining (Staff)", style=discord.ButtonStyle.gray)
+    async def force(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await is_staff(interaction):
+            await interaction.response.send_message("Only staff can force this.", ephemeral=True)
+            return
+        needed = 2 - len(self.volunteers)
+        if needed > 0:
+            session = self.cog.session
+            remaining_pool = [p for p in session.players if p not in self.volunteers]
+            result = await inhouse_client.post("/captains/highest-mmr", {"pool": remaining_pool})
+            self.volunteers.extend(result["captains"][:needed])
+        await self._confirm_captains(interaction, note="[staff-forced] ")
 
 
 class DraftMethodView(discord.ui.View):

@@ -26,7 +26,7 @@ spec:
                     values: ["core"]
       containers:
         - name: gateway
-          image: gateway:v5
+          image: gateway:v6
           imagePullPolicy: Never
           envFrom:
             - secretRef:
