@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inhouse-service
+  namespace: inhouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inhouse-service
+  template:
+    metadata:
+      labels:
+        app: inhouse-service
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["core"]
+      containers:
+        - name: inhouse-service
+          image: ghcr.io/drome05/inhouse-service:d75d24f69b08730846fa64f177a1d9128cc32088
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

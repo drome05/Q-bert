@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: slots-service
+  namespace: casino
+spec:
+  selector:
+    app: slots-service
+  ports:
+    - port: 80
+      targetPort: 8080

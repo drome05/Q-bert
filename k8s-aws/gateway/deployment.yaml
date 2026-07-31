@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: gateway
+spec:
+  replicas: 1   # never run 2+ pods of a single-token bot at once -- double-connects the Discord gateway
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["core"]
+      containers:
+        - name: gateway
+          image: ghcr.io/drome05/gateway:d75d24f69b08730846fa64f177a1d9128cc32088
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: gateway-secrets
+          ports:
+            - containerPort: 8080
+          startupProbe:   # covers cog loading + Discord command sync, which can take longer than a steady-state probe window
+            httpGet:
+              path: /healthz/live
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready   # only 200s once the gateway is actually connected to Discord
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz/live   # process/event-loop alive, independent of Discord connection state
+              port: 8080
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

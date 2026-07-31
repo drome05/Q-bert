@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: twitch-service
+  namespace: twitch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: twitch-service
+  template:
+    metadata:
+      labels:
+        app: twitch-service
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["core"]
+      containers:
+        - name: twitch-service
+          image: ghcr.io/drome05/twitch-service:d75d24f69b08730846fa64f177a1d9128cc32088
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: twitch-secrets
+                optional: true   # TWITCH_CLIENT_ID/SECRET are optional -- the service runs fine without them, just returns "not configured" until you add the secret
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "150m"
+              memory: "128Mi"

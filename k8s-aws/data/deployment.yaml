@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-service
+  namespace: data
+spec:
+  replicas: 1   # the only pod that ever touches bot.db/the PVC -- never scale this
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: db-service
+  template:
+    metadata:
+      labels:
+        app: db-service
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["core"]
+      containers:
+        - name: db-service
+          image: ghcr.io/drome05/db-service:d75d24f69b08730846fa64f177a1d9128cc32088
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          volumeMounts:
+            - name: bot-data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+      volumes:
+        - name: bot-data
+          persistentVolumeClaim:
+            claimName: bot-data-pvc

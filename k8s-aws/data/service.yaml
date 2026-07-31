@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-service
+  namespace: data
+spec:
+  selector:
+    app: db-service
+  ports:
+    - port: 80
+      targetPort: 8080

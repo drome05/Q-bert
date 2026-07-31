@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coinflip-service
+  namespace: casino
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coinflip-service
+  template:
+    metadata:
+      labels:
+        app: coinflip-service
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["games"]
+      containers:
+        - name: coinflip-service
+          image: ghcr.io/drome05/coinflip-service:d75d24f69b08730846fa64f177a1d9128cc32088
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "150m"
+              memory: "128Mi"
