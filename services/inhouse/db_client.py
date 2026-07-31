@@ -33,33 +33,33 @@ class DBClient:
     async def ensure_user(self, user_id: str):
         await self._post("/users/ensure", {"user_id": user_id})
 
-    async def get_mmr(self, user_id: str) -> dict:
-        data, _ = await self._get(f"/inhouse/mmr/{user_id}")
+    async def get_mmr(self, guild_id: str, user_id: str) -> dict:
+        data, _ = await self._get(f"/inhouse/mmr/{guild_id}/{user_id}")
         return data
 
-    async def mmr_leaderboard(self, limit: int = 10) -> list:
-        data, _ = await self._get("/inhouse/mmr", {"limit": limit})
+    async def mmr_leaderboard(self, guild_id: str, limit: int = 10) -> list:
+        data, _ = await self._get(f"/inhouse/mmr/{guild_id}", {"limit": limit})
         return data
 
-    async def active_match(self, user_id: str) -> dict | None:
-        data, _ = await self._get(f"/inhouse/active-match/{user_id}")
+    async def active_match(self, guild_id: str, user_id: str) -> dict | None:
+        data, _ = await self._get(f"/inhouse/active-match/{guild_id}/{user_id}")
         return data
 
-    async def queue_join(self, user_id: str, queue_size: int) -> dict:
-        data, _ = await self._post("/inhouse/queue/join", {"user_id": user_id, "queue_size": queue_size})
+    async def queue_join(self, guild_id: str, user_id: str, queue_size: int) -> dict:
+        data, _ = await self._post("/inhouse/queue/join", {"guild_id": guild_id, "user_id": user_id, "queue_size": queue_size})
         return data
 
-    async def queue_leave(self, user_id: str) -> bool:
-        _, status = await self._post("/inhouse/queue/leave", {"user_id": user_id})
+    async def queue_leave(self, guild_id: str, user_id: str) -> bool:
+        _, status = await self._post("/inhouse/queue/leave", {"guild_id": guild_id, "user_id": user_id})
         return status == 200
 
-    async def queue_list(self) -> list:
-        data, _ = await self._get("/inhouse/queue")
+    async def queue_list(self, guild_id: str) -> list:
+        data, _ = await self._get(f"/inhouse/queue/{guild_id}")
         return data
 
-    async def create_match(self, captain_a: str, captain_b: str, draft_method: str, team_a: list, team_b: list, map_name: str | None = None) -> dict:
+    async def create_match(self, guild_id: str, captain_a: str, captain_b: str, draft_method: str, team_a: list, team_b: list, map_name: str | None = None) -> dict:
         data, _ = await self._post("/inhouse/matches", {
-            "captain_a": captain_a, "captain_b": captain_b, "draft_method": draft_method,
+            "guild_id": guild_id, "captain_a": captain_a, "captain_b": captain_b, "draft_method": draft_method,
             "team_a": team_a, "team_b": team_b, "map": map_name,
         })
         return data
@@ -122,12 +122,12 @@ class DBClient:
         data, _ = await self._get(f"/inhouse/matches/{match_id}/flags")
         return data
 
-    async def get_history(self, user_id) -> list:
-        data, _ = await self._get(f"/inhouse/history/{user_id}")
+    async def get_history(self, guild_id, user_id) -> list:
+        data, _ = await self._get(f"/inhouse/history/{guild_id}/{user_id}")
         return data
 
-    async def get_stats(self, user_id) -> list:
-        data, _ = await self._get(f"/inhouse/stats/{user_id}")
+    async def get_stats(self, guild_id, user_id) -> list:
+        data, _ = await self._get(f"/inhouse/stats/{guild_id}/{user_id}")
         return data
 
     async def sweep_candidates(self, max_age_hours: int) -> list:
@@ -137,8 +137,8 @@ class DBClient:
     async def clear_channels(self, match_id):
         await self._post(f"/inhouse/matches/{match_id}/clear-channels")
 
-    async def adjust_balance(self, user_id: str, amount: int, reason: str):
-        data, status = await self._post("/economy/adjust", {"user_id": user_id, "amount": amount, "reason": reason})
+    async def adjust_balance(self, guild_id: str, user_id: str, amount: int, reason: str):
+        data, status = await self._post("/economy/adjust", {"guild_id": guild_id, "user_id": user_id, "amount": amount, "reason": reason})
         if status == 409:
             raise InsufficientBalance()
         return data["new_balance"]

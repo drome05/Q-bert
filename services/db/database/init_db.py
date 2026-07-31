@@ -13,6 +13,11 @@ from database import db
 COLUMN_MIGRATIONS = [
     ("guild_settings", "twitch_announcements_channel_id", "TEXT"),
     ("inhouse_matches", "map", "TEXT"),
+    # NOT NULL in schema.sql for fresh installs, but ALTER TABLE ADD COLUMN
+    # can't add a NOT NULL constraint to a non-empty table without a
+    # DEFAULT -- migrate_guild_id.py backfills real values into any
+    # existing rows right after this runs.
+    ("inhouse_matches", "guild_id", "TEXT"),
 ]
 
 

@@ -23,7 +23,7 @@ spec:
                     values: ["games"]
       containers:
         - name: coinflip-service
-          image: coinflip-service:v2
+          image: coinflip-service:v3
           imagePullPolicy: Never
           ports:
             - containerPort: 8080

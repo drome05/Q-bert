@@ -45,12 +45,12 @@ async def users_ensure(request):
 
 # --- economy -----------------------------------------------------------------
 
-@routes.get("/economy/{user_id}")
+@routes.get("/economy/{guild_id}/{user_id}")
 async def economy_get(request):
-    user_id = request.match_info["user_id"]
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
     await db.ensure_user(user_id)
-    await db.execute("INSERT INTO economy (user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING", (user_id,))
-    row = await db.fetchone("SELECT * FROM economy WHERE user_id = ?", (user_id,))
+    await db.execute("INSERT INTO economy (guild_id, user_id) VALUES (?, ?) ON CONFLICT(guild_id, user_id) DO NOTHING", (guild_id, user_id))
+    row = await db.fetchone("SELECT * FROM economy WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     return web.json_response(_row(row))
 
 
@@ -59,28 +59,29 @@ async def economy_adjust(request):
     body = await request.json()
     try:
         new_balance = await db.adjust_balance(
-            body["user_id"], body["amount"], body["reason"], allow_negative=body.get("allow_negative", False)
+            body["guild_id"], body["user_id"], body["amount"], body["reason"], allow_negative=body.get("allow_negative", False)
         )
     except db.InsufficientBalance:
         return web.json_response({"error": "insufficient_balance"}, status=409)
     return web.json_response({"new_balance": new_balance})
 
 
-@routes.post("/economy/{user_id}/cooldown")
+@routes.post("/economy/{guild_id}/{user_id}/cooldown")
 async def economy_set_cooldown(request):
-    user_id = request.match_info["user_id"]
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
     body = await request.json()
     column = body["column"]
     if column not in ("last_daily", "last_weekly", "last_monthly"):
         return web.json_response({"error": "invalid column"}, status=400)
-    await db.execute(f"UPDATE economy SET {column} = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
+    await db.execute(f"UPDATE economy SET {column} = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     return web.json_response({"ok": True})
 
 
-@routes.get("/economy")
+@routes.get("/economy/{guild_id}")
 async def economy_leaderboard(request):
+    guild_id = request.match_info["guild_id"]
     limit = int(request.query.get("limit", "10"))
-    rows = await db.fetchall("SELECT user_id, balance FROM economy ORDER BY balance DESC LIMIT ?", (limit,))
+    rows = await db.fetchall("SELECT user_id, balance FROM economy WHERE guild_id = ? ORDER BY balance DESC LIMIT ?", (guild_id, limit))
     return web.json_response(_rows(rows))
 
 
@@ -132,37 +133,39 @@ async def settings_twitch_channel(request):
 @routes.post("/valorant/accounts")
 async def valorant_link(request):
     body = await request.json()
-    user_id = body["user_id"]
+    guild_id, user_id = body["guild_id"], body["user_id"]
     await db.ensure_user(user_id)
     await db.execute(
-        """INSERT INTO valorant_accounts (user_id, riot_name, riot_tag, region)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(user_id) DO UPDATE SET riot_name=excluded.riot_name, riot_tag=excluded.riot_tag, region=excluded.region""",
-        (user_id, body["riot_name"], body["riot_tag"], body["region"]),
+        """INSERT INTO valorant_accounts (guild_id, user_id, riot_name, riot_tag, region)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(guild_id, user_id) DO UPDATE SET riot_name=excluded.riot_name, riot_tag=excluded.riot_tag, region=excluded.region""",
+        (guild_id, user_id, body["riot_name"], body["riot_tag"], body["region"]),
     )
     return web.json_response({"ok": True})
 
 
-@routes.get("/valorant/accounts/{user_id}")
+@routes.get("/valorant/accounts/{guild_id}/{user_id}")
 async def valorant_get(request):
-    row = await db.fetchone("SELECT * FROM valorant_accounts WHERE user_id = ?", (request.match_info["user_id"],))
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
+    row = await db.fetchone("SELECT * FROM valorant_accounts WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     if row is None:
         return web.json_response({"error": "not_found"}, status=404)
     return web.json_response(_row(row))
 
 
-@routes.get("/valorant/accounts")
+@routes.get("/valorant/accounts/{guild_id}")
 async def valorant_list(request):
-    rows = await db.fetchall("SELECT * FROM valorant_accounts")
+    rows = await db.fetchall("SELECT * FROM valorant_accounts WHERE guild_id = ?", (request.match_info["guild_id"],))
     return web.json_response(_rows(rows))
 
 
-@routes.post("/valorant/accounts/{user_id}/rank")
+@routes.post("/valorant/accounts/{guild_id}/{user_id}/rank")
 async def valorant_update_rank(request):
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
     body = await request.json()
     await db.execute(
-        "UPDATE valorant_accounts SET last_known_rank = ?, last_known_rr = ?, last_checked = CURRENT_TIMESTAMP WHERE user_id = ?",
-        (body.get("last_known_rank"), body.get("last_known_rr"), request.match_info["user_id"]),
+        "UPDATE valorant_accounts SET last_known_rank = ?, last_known_rr = ?, last_checked = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?",
+        (body.get("last_known_rank"), body.get("last_known_rr"), guild_id, user_id),
     )
     return web.json_response({"ok": True})
 
@@ -172,78 +175,82 @@ async def valorant_update_rank(request):
 @routes.post("/twitch/accounts")
 async def twitch_link(request):
     body = await request.json()
-    user_id = body["user_id"]
+    guild_id, user_id = body["guild_id"], body["user_id"]
     await db.ensure_user(user_id)
     await db.execute(
-        """INSERT INTO twitch_accounts (user_id, twitch_username) VALUES (?, ?)
-           ON CONFLICT(user_id) DO UPDATE SET twitch_username = excluded.twitch_username""",
-        (user_id, body["twitch_username"]),
+        """INSERT INTO twitch_accounts (guild_id, user_id, twitch_username) VALUES (?, ?, ?)
+           ON CONFLICT(guild_id, user_id) DO UPDATE SET twitch_username = excluded.twitch_username""",
+        (guild_id, user_id, body["twitch_username"]),
     )
     return web.json_response({"ok": True})
 
 
-@routes.delete("/twitch/accounts/{user_id}")
+@routes.delete("/twitch/accounts/{guild_id}/{user_id}")
 async def twitch_unlink(request):
-    user_id = request.match_info["user_id"]
-    existing = await db.fetchone("SELECT 1 FROM twitch_accounts WHERE user_id = ?", (user_id,))
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
+    existing = await db.fetchone("SELECT 1 FROM twitch_accounts WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     if not existing:
         return web.json_response({"error": "not_found"}, status=404)
-    await db.execute("DELETE FROM twitch_accounts WHERE user_id = ?", (user_id,))
+    await db.execute("DELETE FROM twitch_accounts WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     return web.json_response({"ok": True})
 
 
-@routes.get("/twitch/accounts/{user_id}")
+@routes.get("/twitch/accounts/{guild_id}/{user_id}")
 async def twitch_get(request):
-    row = await db.fetchone("SELECT * FROM twitch_accounts WHERE user_id = ?", (request.match_info["user_id"],))
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
+    row = await db.fetchone("SELECT * FROM twitch_accounts WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     if row is None:
         return web.json_response({"error": "not_found"}, status=404)
     return web.json_response(_row(row))
 
 
-@routes.get("/twitch/accounts")
+@routes.get("/twitch/accounts/{guild_id}")
 async def twitch_list(request):
-    rows = await db.fetchall("SELECT * FROM twitch_accounts ORDER BY twitch_username")
+    rows = await db.fetchall("SELECT * FROM twitch_accounts WHERE guild_id = ? ORDER BY twitch_username", (request.match_info["guild_id"],))
     return web.json_response(_rows(rows))
 
 
-@routes.post("/twitch/accounts/{user_id}/status")
+@routes.post("/twitch/accounts/{guild_id}/{user_id}/status")
 async def twitch_update_status(request):
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
     body = await request.json()
     await db.execute(
-        "UPDATE twitch_accounts SET is_live = ?, last_stream_id = ?, last_checked = CURRENT_TIMESTAMP WHERE user_id = ?",
-        (1 if body["is_live"] else 0, body.get("last_stream_id"), request.match_info["user_id"]),
+        "UPDATE twitch_accounts SET is_live = ?, last_stream_id = ?, last_checked = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?",
+        (1 if body["is_live"] else 0, body.get("last_stream_id"), guild_id, user_id),
     )
     return web.json_response({"ok": True})
 
 
 # --- inhouse: mmr / queue ------------------------------------------------------
 
-@routes.get("/inhouse/mmr/{user_id}")
+@routes.get("/inhouse/mmr/{guild_id}/{user_id}")
 async def inhouse_get_mmr(request):
-    user_id = request.match_info["user_id"]
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
     await db.ensure_user(user_id)
     await db.execute(
-        "INSERT INTO inhouse_mmr (user_id, mmr) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING",
-        (user_id, config.INHOUSE_STARTING_MMR),
+        "INSERT INTO inhouse_mmr (guild_id, user_id, mmr) VALUES (?, ?, ?) ON CONFLICT(guild_id, user_id) DO NOTHING",
+        (guild_id, user_id, config.INHOUSE_STARTING_MMR),
     )
-    row = await db.fetchone("SELECT * FROM inhouse_mmr WHERE user_id = ?", (user_id,))
+    row = await db.fetchone("SELECT * FROM inhouse_mmr WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     return web.json_response(_row(row))
 
 
-@routes.get("/inhouse/mmr")
+@routes.get("/inhouse/mmr/{guild_id}")
 async def inhouse_leaderboard(request):
+    guild_id = request.match_info["guild_id"]
     limit = int(request.query.get("limit", "10"))
-    rows = await db.fetchall("SELECT * FROM inhouse_mmr ORDER BY mmr DESC LIMIT ?", (limit,))
+    rows = await db.fetchall("SELECT * FROM inhouse_mmr WHERE guild_id = ? ORDER BY mmr DESC LIMIT ?", (guild_id, limit))
     return web.json_response(_rows(rows))
 
 
-@routes.get("/inhouse/active-match/{user_id}")
+@routes.get("/inhouse/active-match/{guild_id}/{user_id}")
 async def inhouse_active_match(request):
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
     row = await db.fetchone(
         """SELECT m.* FROM inhouse_matches m
            JOIN inhouse_match_players p ON p.match_id = m.match_id
-           WHERE p.user_id = ? AND m.status IN ('in_progress', 'voting')""",
-        (request.match_info["user_id"],),
+           WHERE p.user_id = ? AND m.guild_id = ? AND m.status IN ('in_progress', 'voting')""",
+        (user_id, guild_id),
     )
     return web.json_response(_row(row))
 
@@ -251,28 +258,28 @@ async def inhouse_active_match(request):
 @routes.post("/inhouse/queue/join")
 async def inhouse_queue_join(request):
     body = await request.json()
-    user_id = body["user_id"]
+    guild_id, user_id = body["guild_id"], body["user_id"]
     queue_size = body["queue_size"]
 
     async with db.transaction() as conn:
         cursor = await conn.execute(
-            "INSERT INTO inhouse_queue (user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING", (user_id,)
+            "INSERT INTO inhouse_queue (guild_id, user_id) VALUES (?, ?) ON CONFLICT(guild_id, user_id) DO NOTHING", (guild_id, user_id)
         )
         if cursor.rowcount == 0:
             await conn.commit()
             return web.json_response({"already_queued": True})
 
-        count_cursor = await conn.execute("SELECT COUNT(*) as c FROM inhouse_queue")
+        count_cursor = await conn.execute("SELECT COUNT(*) as c FROM inhouse_queue WHERE guild_id = ?", (guild_id,))
         count = (await count_cursor.fetchone())["c"]
 
         drained = None
         if count >= queue_size:
             pool_cursor = await conn.execute(
-                "SELECT user_id FROM inhouse_queue ORDER BY joined_at LIMIT ?", (queue_size,)
+                "SELECT user_id FROM inhouse_queue WHERE guild_id = ? ORDER BY joined_at LIMIT ?", (guild_id, queue_size)
             )
             drained = [r["user_id"] for r in await pool_cursor.fetchall()]
             await conn.execute(
-                f"DELETE FROM inhouse_queue WHERE user_id IN ({','.join('?' * len(drained))})", tuple(drained)
+                f"DELETE FROM inhouse_queue WHERE guild_id = ? AND user_id IN ({','.join('?' * len(drained))})", (guild_id, *drained)
             )
         await conn.commit()
 
@@ -282,16 +289,17 @@ async def inhouse_queue_join(request):
 @routes.post("/inhouse/queue/leave")
 async def inhouse_queue_leave(request):
     body = await request.json()
-    existing = await db.fetchone("SELECT 1 FROM inhouse_queue WHERE user_id = ?", (body["user_id"],))
+    guild_id, user_id = body["guild_id"], body["user_id"]
+    existing = await db.fetchone("SELECT 1 FROM inhouse_queue WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     if not existing:
         return web.json_response({"error": "not_queued"}, status=404)
-    await db.execute("DELETE FROM inhouse_queue WHERE user_id = ?", (body["user_id"],))
+    await db.execute("DELETE FROM inhouse_queue WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     return web.json_response({"ok": True})
 
 
-@routes.get("/inhouse/queue")
+@routes.get("/inhouse/queue/{guild_id}")
 async def inhouse_queue_list(request):
-    rows = await db.fetchall("SELECT user_id FROM inhouse_queue ORDER BY joined_at")
+    rows = await db.fetchall("SELECT user_id FROM inhouse_queue WHERE guild_id = ? ORDER BY joined_at", (request.match_info["guild_id"],))
     return web.json_response(_rows(rows))
 
 
@@ -302,6 +310,7 @@ async def inhouse_create_match(request):
     """Atomically creates the match row + all 10 match_players rows, fetching
     fresh MMR for each player first. Mirrors the original finalize_match()."""
     body = await request.json()
+    guild_id = body["guild_id"]
     captain_a, captain_b = body["captain_a"], body["captain_b"]
     draft_method = body["draft_method"]
     team_a, team_b = body["team_a"], body["team_b"]
@@ -311,16 +320,16 @@ async def inhouse_create_match(request):
     for uid in team_a + team_b:
         await db.ensure_user(uid)
         await db.execute(
-            "INSERT INTO inhouse_mmr (user_id, mmr) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING",
-            (uid, config.INHOUSE_STARTING_MMR),
+            "INSERT INTO inhouse_mmr (guild_id, user_id, mmr) VALUES (?, ?, ?) ON CONFLICT(guild_id, user_id) DO NOTHING",
+            (guild_id, uid, config.INHOUSE_STARTING_MMR),
         )
-        row = await db.fetchone("SELECT mmr FROM inhouse_mmr WHERE user_id = ?", (uid,))
+        row = await db.fetchone("SELECT mmr FROM inhouse_mmr WHERE guild_id = ? AND user_id = ?", (guild_id, uid))
         mmr_before[uid] = row["mmr"]
 
     async with db.transaction() as conn:
         cursor = await conn.execute(
-            "INSERT INTO inhouse_matches (captain_a, captain_b, draft_method, status, map) VALUES (?, ?, ?, 'in_progress', ?)",
-            (captain_a, captain_b, draft_method, map_name),
+            "INSERT INTO inhouse_matches (guild_id, captain_a, captain_b, draft_method, status, map) VALUES (?, ?, ?, ?, 'in_progress', ?)",
+            (guild_id, captain_a, captain_b, draft_method, map_name),
         )
         match_id = cursor.lastrowid
         for uid in team_a:
@@ -379,12 +388,15 @@ async def inhouse_substitute(request):
     body = await request.json()
     player_out, player_in, team = body["player_out"], body["player_in"], body["team"]
 
+    match = await db.fetchone("SELECT guild_id FROM inhouse_matches WHERE match_id = ?", (match_id,))
+    guild_id = match["guild_id"]
+
     await db.ensure_user(player_in)
     await db.execute(
-        "INSERT INTO inhouse_mmr (user_id, mmr) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING",
-        (player_in, config.INHOUSE_STARTING_MMR),
+        "INSERT INTO inhouse_mmr (guild_id, user_id, mmr) VALUES (?, ?, ?) ON CONFLICT(guild_id, user_id) DO NOTHING",
+        (guild_id, player_in, config.INHOUSE_STARTING_MMR),
     )
-    mmr_row = await db.fetchone("SELECT mmr FROM inhouse_mmr WHERE user_id = ?", (player_in,))
+    mmr_row = await db.fetchone("SELECT mmr FROM inhouse_mmr WHERE guild_id = ? AND user_id = ?", (guild_id, player_in))
 
     async with db.transaction() as conn:
         await conn.execute(
@@ -435,6 +447,9 @@ async def inhouse_resolve(request):
     body = await request.json()
     winning_team, reported_by, player_results = body["winning_team"], body.get("reported_by"), body["player_results"]
 
+    match = await db.fetchone("SELECT guild_id FROM inhouse_matches WHERE match_id = ?", (match_id,))
+    guild_id = match["guild_id"]
+
     async with db.transaction() as conn:
         for p in player_results:
             new_mmr = p["mmr_before"] + p["delta"]
@@ -444,20 +459,20 @@ async def inhouse_resolve(request):
             )
             counter = "wins" if p["won"] else "losses"
             await conn.execute(
-                f"UPDATE inhouse_mmr SET mmr = mmr + ?, {counter} = {counter} + 1 WHERE user_id = ?",
-                (p["delta"], p["user_id"]),
+                f"UPDATE inhouse_mmr SET mmr = mmr + ?, {counter} = {counter} + 1 WHERE guild_id = ? AND user_id = ?",
+                (p["delta"], guild_id, p["user_id"]),
             )
             await conn.execute(
-                "INSERT INTO economy (user_id, balance) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING", (p["user_id"],)
+                "INSERT INTO economy (guild_id, user_id, balance) VALUES (?, ?, 0) ON CONFLICT(guild_id, user_id) DO NOTHING", (guild_id, p["user_id"])
             )
-            bal_cursor = await conn.execute("SELECT balance FROM economy WHERE user_id = ?", (p["user_id"],))
+            bal_cursor = await conn.execute("SELECT balance FROM economy WHERE guild_id = ? AND user_id = ?", (guild_id, p["user_id"]))
             current_balance = (await bal_cursor.fetchone())["balance"]
             await conn.execute(
-                "UPDATE economy SET balance = balance + ? WHERE user_id = ?", (p["coin_reward"], p["user_id"])
+                "UPDATE economy SET balance = balance + ? WHERE guild_id = ? AND user_id = ?", (p["coin_reward"], guild_id, p["user_id"])
             )
             await conn.execute(
-                "INSERT INTO economy_transactions (user_id, amount, reason) VALUES (?, ?, ?)",
-                (p["user_id"], p["coin_reward"], "inhouse_win" if p["won"] else "inhouse_loss"),
+                "INSERT INTO economy_transactions (guild_id, user_id, amount, reason) VALUES (?, ?, ?, ?)",
+                (guild_id, p["user_id"], p["coin_reward"], "inhouse_win" if p["won"] else "inhouse_loss"),
             )
         await conn.execute(
             "UPDATE inhouse_matches SET status = 'completed', winning_team = ?, reported_by = ? WHERE match_id = ?",
@@ -476,6 +491,9 @@ async def inhouse_revert(request):
     previous_winning_team = body["previous_winning_team"]
     win_reward, loss_reward = body["win_reward"], body["loss_reward"]
 
+    match = await db.fetchone("SELECT guild_id FROM inhouse_matches WHERE match_id = ?", (match_id,))
+    guild_id = match["guild_id"]
+
     players = await db.fetchall("SELECT * FROM inhouse_match_players WHERE match_id = ?", (match_id,))
     async with db.transaction() as conn:
         for p in players:
@@ -485,14 +503,14 @@ async def inhouse_revert(request):
             won = p["team"] == previous_winning_team
             counter = "wins" if won else "losses"
             await conn.execute(
-                f"UPDATE inhouse_mmr SET mmr = mmr - ?, {counter} = {counter} - 1 WHERE user_id = ?",
-                (delta, p["user_id"]),
+                f"UPDATE inhouse_mmr SET mmr = mmr - ?, {counter} = {counter} - 1 WHERE guild_id = ? AND user_id = ?",
+                (delta, guild_id, p["user_id"]),
             )
             reward = win_reward if won else loss_reward
-            await conn.execute("UPDATE economy SET balance = balance - ? WHERE user_id = ?", (reward, p["user_id"]))
+            await conn.execute("UPDATE economy SET balance = balance - ? WHERE guild_id = ? AND user_id = ?", (reward, guild_id, p["user_id"]))
             await conn.execute(
-                "INSERT INTO economy_transactions (user_id, amount, reason) VALUES (?, ?, ?)",
-                (p["user_id"], -reward, "admin_adjust"),
+                "INSERT INTO economy_transactions (guild_id, user_id, amount, reason) VALUES (?, ?, ?, ?)",
+                (guild_id, p["user_id"], -reward, "admin_adjust"),
             )
             await conn.execute(
                 "UPDATE inhouse_match_players SET mmr_after = NULL WHERE match_id = ? AND user_id = ?",
@@ -505,15 +523,15 @@ async def inhouse_revert(request):
         for r in settled:
             if r["payout"]:
                 await conn.execute(
-                    "INSERT INTO economy (user_id, balance) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING",
-                    (r["user_id"],),
+                    "INSERT INTO economy (guild_id, user_id, balance) VALUES (?, ?, 0) ON CONFLICT(guild_id, user_id) DO NOTHING",
+                    (guild_id, r["user_id"]),
                 )
                 await conn.execute(
-                    "UPDATE economy SET balance = balance - ? WHERE user_id = ?", (r["payout"], r["user_id"])
+                    "UPDATE economy SET balance = balance - ? WHERE guild_id = ? AND user_id = ?", (r["payout"], guild_id, r["user_id"])
                 )
                 await conn.execute(
-                    "INSERT INTO economy_transactions (user_id, amount, reason) VALUES (?, ?, ?)",
-                    (r["user_id"], -r["payout"], "admin_adjust"),
+                    "INSERT INTO economy_transactions (guild_id, user_id, amount, reason) VALUES (?, ?, ?, ?)",
+                    (guild_id, r["user_id"], -r["payout"], "admin_adjust"),
                 )
             await conn.execute(
                 "UPDATE inhouse_predictions SET settled = 0, payout = NULL WHERE match_id = ? AND user_id = ?",
@@ -555,19 +573,22 @@ async def inhouse_settle_predictions(request):
     body = await request.json()
     payouts = body["payouts"]  # [{user_id, payout}]
 
+    match = await db.fetchone("SELECT guild_id FROM inhouse_matches WHERE match_id = ?", (match_id,))
+    guild_id = match["guild_id"]
+
     async with db.transaction() as conn:
         for p in payouts:
             if p["payout"]:
                 await conn.execute(
-                    "INSERT INTO economy (user_id, balance) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING",
-                    (p["user_id"],),
+                    "INSERT INTO economy (guild_id, user_id, balance) VALUES (?, ?, 0) ON CONFLICT(guild_id, user_id) DO NOTHING",
+                    (guild_id, p["user_id"]),
                 )
                 await conn.execute(
-                    "UPDATE economy SET balance = balance + ? WHERE user_id = ?", (p["payout"], p["user_id"])
+                    "UPDATE economy SET balance = balance + ? WHERE guild_id = ? AND user_id = ?", (p["payout"], guild_id, p["user_id"])
                 )
                 await conn.execute(
-                    "INSERT INTO economy_transactions (user_id, amount, reason) VALUES (?, ?, ?)",
-                    (p["user_id"], p["payout"], "inhouse_predict"),
+                    "INSERT INTO economy_transactions (guild_id, user_id, amount, reason) VALUES (?, ?, ?, ?)",
+                    (guild_id, p["user_id"], p["payout"], "inhouse_predict"),
                 )
             await conn.execute(
                 "UPDATE inhouse_predictions SET settled = 1, payout = ? WHERE match_id = ? AND user_id = ?",
@@ -584,20 +605,24 @@ async def inhouse_unsettle_predictions(request):
     _unsettle_predictions() so a later real settlement isn't left in a
     half-reversed state."""
     match_id = request.match_info["match_id"]
+
+    match = await db.fetchone("SELECT guild_id FROM inhouse_matches WHERE match_id = ?", (match_id,))
+    guild_id = match["guild_id"]
+
     settled = await db.fetchall("SELECT * FROM inhouse_predictions WHERE match_id = ? AND settled = 1", (match_id,))
     async with db.transaction() as conn:
         for r in settled:
             if r["payout"]:
                 await conn.execute(
-                    "INSERT INTO economy (user_id, balance) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING",
-                    (r["user_id"],),
+                    "INSERT INTO economy (guild_id, user_id, balance) VALUES (?, ?, 0) ON CONFLICT(guild_id, user_id) DO NOTHING",
+                    (guild_id, r["user_id"]),
                 )
                 await conn.execute(
-                    "UPDATE economy SET balance = balance - ? WHERE user_id = ?", (r["payout"], r["user_id"])
+                    "UPDATE economy SET balance = balance - ? WHERE guild_id = ? AND user_id = ?", (r["payout"], guild_id, r["user_id"])
                 )
                 await conn.execute(
-                    "INSERT INTO economy_transactions (user_id, amount, reason) VALUES (?, ?, ?)",
-                    (r["user_id"], -r["payout"], "admin_adjust"),
+                    "INSERT INTO economy_transactions (guild_id, user_id, amount, reason) VALUES (?, ?, ?, ?)",
+                    (guild_id, r["user_id"], -r["payout"], "admin_adjust"),
                 )
             await conn.execute(
                 "UPDATE inhouse_predictions SET settled = 0, payout = NULL WHERE match_id = ? AND user_id = ?",
@@ -621,25 +646,26 @@ async def inhouse_flags(request):
     return web.json_response(flagged)
 
 
-@routes.get("/inhouse/history/{user_id}")
+@routes.get("/inhouse/history/{guild_id}/{user_id}")
 async def inhouse_history(request):
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
     rows = await db.fetchall(
         """SELECT m.* FROM inhouse_matches m
            JOIN inhouse_match_players p ON p.match_id = m.match_id
-           WHERE p.user_id = ? AND m.status IN ('completed', 'cancelled') ORDER BY m.match_id DESC""",
-        (request.match_info["user_id"],),
+           WHERE p.user_id = ? AND m.guild_id = ? AND m.status IN ('completed', 'cancelled') ORDER BY m.match_id DESC""",
+        (user_id, guild_id),
     )
     return web.json_response(_rows(rows))
 
 
-@routes.get("/inhouse/stats/{user_id}")
+@routes.get("/inhouse/stats/{guild_id}/{user_id}")
 async def inhouse_stats(request):
-    user_id = request.match_info["user_id"]
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
     recent = await db.fetchall(
         """SELECT m.match_id, p.team, m.winning_team FROM inhouse_matches m
            JOIN inhouse_match_players p ON p.match_id = m.match_id
-           WHERE p.user_id = ? AND m.status = 'completed' ORDER BY m.match_id DESC LIMIT 5""",
-        (user_id,),
+           WHERE p.user_id = ? AND m.guild_id = ? AND m.status = 'completed' ORDER BY m.match_id DESC LIMIT 5""",
+        (user_id, guild_id),
     )
     return web.json_response(_rows(recent))
 

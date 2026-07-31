@@ -23,7 +23,7 @@ spec:
                     values: ["games"]
       containers:
         - name: blackjack-service
-          image: blackjack-service:v2
+          image: blackjack-service:v3
           imagePullPolicy: Never
           ports:
             - containerPort: 8080

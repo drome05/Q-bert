@@ -26,20 +26,20 @@ db = DBClient()
 @routes.post("/resolve")
 async def resolve(request):
     body = await request.json()
-    challenger_id, opponent_id, amount = body["challenger_id"], body["opponent_id"], body["amount"]
+    guild_id, challenger_id, opponent_id, amount = body["guild_id"], body["challenger_id"], body["opponent_id"], body["amount"]
 
     try:
-        await db.adjust_balance(challenger_id, -amount, "coinflip")
+        await db.adjust_balance(guild_id, challenger_id, -amount, "coinflip")
     except InsufficientBalance:
         return web.json_response({"error": "challenger_insufficient_balance"}, status=409)
     try:
-        await db.adjust_balance(opponent_id, -amount, "coinflip")
+        await db.adjust_balance(guild_id, opponent_id, -amount, "coinflip")
     except InsufficientBalance:
-        await db.adjust_balance(challenger_id, amount, "coinflip")
+        await db.adjust_balance(guild_id, challenger_id, amount, "coinflip")
         return web.json_response({"error": "opponent_insufficient_balance"}, status=409)
 
     winner_id, loser_id = random.choice([(challenger_id, opponent_id), (opponent_id, challenger_id)])
-    await db.adjust_balance(winner_id, amount * 2, "coinflip")
+    await db.adjust_balance(guild_id, winner_id, amount * 2, "coinflip")
     return web.json_response({"winner_id": winner_id, "loser_id": loser_id, "payout": amount * 2})
 
 

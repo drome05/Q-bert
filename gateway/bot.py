@@ -61,10 +61,17 @@ class DiscordBot(commands.Bot):
             await self.load_extension(cog)
             logger.info("Loaded extension %s", cog)
 
-        guild = discord.Object(id=config.GUILD_ID)
-        self.tree.copy_global_to(guild=guild)
-        synced = await self.tree.sync(guild=guild)
-        logger.info("Synced %d commands to guild %s", len(synced), config.GUILD_ID)
+        # Global sync -- works in every guild the bot is in (including
+        # ones invited after this deploy), at the cost of ~1hr propagation
+        # after a command *definition* changes. Plus an optional instant-sync
+        # target for whichever guild is under active development.
+        global_synced = await self.tree.sync()
+        logger.info("Synced %d commands globally", len(global_synced))
+        if config.DEV_GUILD_ID:
+            dev_guild = discord.Object(id=config.DEV_GUILD_ID)
+            self.tree.copy_global_to(guild=dev_guild)
+            dev_synced = await self.tree.sync(guild=dev_guild)
+            logger.info("Synced %d commands instantly to dev guild %s", len(dev_synced), config.DEV_GUILD_ID)
 
     async def on_ready(self):
         logger.info("Logged in as %s (id: %s)", self.user, self.user.id)

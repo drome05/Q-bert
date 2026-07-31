@@ -13,7 +13,7 @@ from utils.permissions import require_staff
 
 
 class Settings(commands.Cog):
-    settings_group = app_commands.Group(name="settings", description="Configure this server's bot settings")
+    settings_group = app_commands.Group(name="settings", description="Configure this server's bot settings", guild_only=True)
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot

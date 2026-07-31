@@ -23,7 +23,7 @@ spec:
                     values: ["games"]
       containers:
         - name: slots-service
-          image: slots-service:v2
+          image: slots-service:v3
           imagePullPolicy: Never
           ports:
             - containerPort: 8080

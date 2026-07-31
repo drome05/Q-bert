@@ -24,7 +24,7 @@ spec:
                     values: ["core"]
       containers:
         - name: twitch-service
-          image: twitch-service:v2
+          image: twitch-service:v3
           imagePullPolicy: Never
           envFrom:
             - secretRef:

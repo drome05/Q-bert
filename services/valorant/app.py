@@ -33,17 +33,17 @@ henrik: HenrikDevClient | None = None
 @routes.post("/link")
 async def link(request):
     body = await request.json()
-    user_id, riot_name, riot_tag, region = body["user_id"], body["riot_name"], body["riot_tag"], body.get("region", "na")
+    guild_id, user_id, riot_name, riot_tag, region = body["guild_id"], body["user_id"], body["riot_name"], body["riot_tag"], body.get("region", "na")
     if region not in config.VALORANT_VALID_REGIONS:
         return web.json_response({"error": "invalid_region", "valid_regions": sorted(config.VALORANT_VALID_REGIONS)}, status=400)
     await db.ensure_user(user_id)
-    await db.link(user_id, riot_name, riot_tag, region)
+    await db.link(guild_id, user_id, riot_name, riot_tag, region)
     return web.json_response({"ok": True})
 
 
-@routes.get("/rank/{user_id}")
+@routes.get("/rank/{guild_id}/{user_id}")
 async def rank(request):
-    account = await db.get_account(request.match_info["user_id"])
+    account = await db.get_account(request.match_info["guild_id"], request.match_info["user_id"])
     if account is None:
         return web.json_response({"found": False, "linked": False})
 
@@ -99,9 +99,9 @@ async def rank(request):
     })
 
 
-@routes.get("/matches/{user_id}")
+@routes.get("/matches/{guild_id}/{user_id}")
 async def matches(request):
-    account = await db.get_account(request.match_info["user_id"])
+    account = await db.get_account(request.match_info["guild_id"], request.match_info["user_id"])
     if account is None:
         return web.json_response({"found": False, "linked": False})
 
@@ -132,7 +132,9 @@ async def matches(request):
 
 @routes.post("/rankup-check")
 async def rankup_check(request):
-    accounts = await db.list_accounts()
+    body = await request.json()
+    guild_id = body["guild_id"]
+    accounts = await db.list_accounts(guild_id)
     events = []
     for account in accounts:
         try:
@@ -147,10 +149,10 @@ async def rankup_check(request):
             if old_index is not None and new_index is not None and new_index > old_index:
                 tiers_gained = new_index - old_index
                 reward = config.VALORANT_RANKUP_REWARD_PER_TIER * tiers_gained
-                await db.adjust_balance(account["user_id"], reward, "valorant_rankup")
+                await db.adjust_balance(guild_id, account["user_id"], reward, "valorant_rankup")
                 events.append({"user_id": account["user_id"], "new_tier": new_tier, "reward": reward})
 
-            await db.update_rank(account["user_id"], new_tier, new_rr)
+            await db.update_rank(guild_id, account["user_id"], new_tier, new_rr)
         except HenrikDevError as e:
             logger.warning("Rank-up poll failed for %s#%s: %s", account["riot_name"], account["riot_tag"], e)
         except Exception:

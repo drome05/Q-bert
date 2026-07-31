@@ -24,7 +24,7 @@ spec:
                     values: ["core"]
       containers:
         - name: economy-service
-          image: economy-service:v2
+          image: economy-service:v3
           imagePullPolicy: Never
           ports:
             - containerPort: 8080

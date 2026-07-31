@@ -12,7 +12,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-import config
 from utils import settings_client as settings
 from utils.clients import valorant_client
 from utils.service_client import ServiceError
@@ -34,7 +33,7 @@ VALORANT_MATCHES_DEFAULT_COUNT = 5
 
 
 class Valorant(commands.Cog):
-    valorant_group = app_commands.Group(name="valorant", description="Valorant tracker commands")
+    valorant_group = app_commands.Group(name="valorant", description="Valorant tracker commands", guild_only=True)
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -50,7 +49,7 @@ class Valorant(commands.Cog):
     @app_commands.choices(region=[app_commands.Choice(name=r, value=r) for r in VALORANT_REGIONS])
     async def link(self, interaction: discord.Interaction, riot_name: str, riot_tag: str, region: str = "na"):
         try:
-            await valorant_client.post("/link", {"user_id": str(interaction.user.id), "riot_name": riot_name, "riot_tag": riot_tag, "region": region})
+            await valorant_client.post("/link", {"guild_id": str(interaction.guild_id), "user_id": str(interaction.user.id), "riot_name": riot_name, "riot_tag": riot_tag, "region": region})
         except ServiceError as e:
             valid = e.body.get("valid_regions", VALORANT_REGIONS)
             await interaction.response.send_message(f"Region must be one of: {', '.join(valid)}", ephemeral=True)
@@ -62,7 +61,7 @@ class Valorant(commands.Cog):
     async def rank(self, interaction: discord.Interaction, user: discord.Member | None = None):
         target = user or interaction.user
         await interaction.response.defer()
-        result = await valorant_client.get(f"/rank/{target.id}")
+        result = await valorant_client.get(f"/rank/{interaction.guild_id}/{target.id}")
         if not result["linked"]:
             who = "You haven't" if target.id == interaction.user.id else f"{target.display_name} hasn't"
             await interaction.followup.send(f"{who} linked a Riot account yet. Use `/valorant link` first.")
@@ -108,7 +107,7 @@ class Valorant(commands.Cog):
     ):
         target = user or interaction.user
         await interaction.response.defer()
-        result = await valorant_client.get(f"/matches/{target.id}", params={"count": count, **({"mode": mode.value} if mode else {})})
+        result = await valorant_client.get(f"/matches/{interaction.guild_id}/{target.id}", params={"count": count, **({"mode": mode.value} if mode else {})})
         if not result["linked"]:
             who = "You haven't" if target.id == interaction.user.id else f"{target.display_name} hasn't"
             await interaction.followup.send(f"{who} linked a Riot account yet. Use `/valorant link` first.")
@@ -160,23 +159,24 @@ class Valorant(commands.Cog):
 
     @tasks.loop(hours=1)
     async def rankup_poll(self):
-        try:
-            result = await valorant_client.post("/rankup-check", {})
-        except ServiceError as e:
-            logger.warning("Rank-up poll call failed: %s", e)
-            return
-        if not result["events"]:
-            return
+        # Runs once per guild the bot is actually in -- not a single global
+        # scan -- since accounts/rewards are now isolated per-server.
+        for guild in self.bot.guilds:
+            guild_settings = await settings.get(guild.id)
+            channel_id = guild_settings["valorant_updates_channel_id"]
+            channel = self.bot.get_channel(int(channel_id)) if channel_id else None
+            if not channel:
+                continue
 
-        guild_settings = await settings.get(config.GUILD_ID)
-        channel_id = guild_settings["valorant_updates_channel_id"]
-        channel = self.bot.get_channel(int(channel_id)) if channel_id else None
-        if not channel:
-            return
-        for event in result["events"]:
-            await channel.send(
-                f"🎉 <@{event['user_id']}> ranked up to **{event['new_tier']}**! (+{event['reward']:,} {guild_settings['currency_name']})"
-            )
+            try:
+                result = await valorant_client.post("/rankup-check", {"guild_id": str(guild.id)})
+            except ServiceError as e:
+                logger.warning("Rank-up poll call failed for guild %s: %s", guild.id, e)
+                continue
+            for event in result["events"]:
+                await channel.send(
+                    f"🎉 <@{event['user_id']}> ranked up to **{event['new_tier']}**! (+{event['reward']:,} {guild_settings['currency_name']})"
+                )
 
     @rankup_poll.before_loop
     async def before_rankup_poll(self):

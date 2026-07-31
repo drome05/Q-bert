@@ -30,33 +30,35 @@ db = DBClient()
 
 # --- queue -------------------------------------------------------------------
 
-@routes.get("/mmr/{user_id}")
+@routes.get("/mmr/{guild_id}/{user_id}")
 async def get_mmr(request):
-    await db.ensure_user(request.match_info["user_id"])
-    return web.json_response(await db.get_mmr(request.match_info["user_id"]))
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
+    await db.ensure_user(user_id)
+    return web.json_response(await db.get_mmr(guild_id, user_id))
 
 
-@routes.get("/mmr")
+@routes.get("/mmr/{guild_id}")
 async def mmr_leaderboard(request):
+    guild_id = request.match_info["guild_id"]
     limit = int(request.query.get("limit", "10"))
-    return web.json_response(await db.mmr_leaderboard(limit))
+    return web.json_response(await db.mmr_leaderboard(guild_id, limit))
 
 
-@routes.get("/active-match/{user_id}")
+@routes.get("/active-match/{guild_id}/{user_id}")
 async def active_match(request):
-    return web.json_response(await db.active_match(request.match_info["user_id"]))
+    return web.json_response(await db.active_match(request.match_info["guild_id"], request.match_info["user_id"]))
 
 
 @routes.post("/queue/join")
 async def queue_join(request):
     body = await request.json()
-    user_id = body["user_id"]
+    guild_id, user_id = body["guild_id"], body["user_id"]
     await db.ensure_user(user_id)
 
-    if await db.active_match(user_id):
+    if await db.active_match(guild_id, user_id):
         return web.json_response({"error": "in_active_match"}, status=409)
 
-    result = await db.queue_join(user_id, config.INHOUSE_SIZE)
+    result = await db.queue_join(guild_id, user_id, config.INHOUSE_SIZE)
     if result["already_queued"]:
         return web.json_response({"error": "already_queued"}, status=409)
     return web.json_response(result)
@@ -65,15 +67,15 @@ async def queue_join(request):
 @routes.post("/queue/leave")
 async def queue_leave(request):
     body = await request.json()
-    ok = await db.queue_leave(body["user_id"])
+    ok = await db.queue_leave(body["guild_id"], body["user_id"])
     if not ok:
         return web.json_response({"error": "not_queued"}, status=404)
     return web.json_response({"ok": True})
 
 
-@routes.get("/queue")
+@routes.get("/queue/{guild_id}")
 async def queue_list(request):
-    return web.json_response(await db.queue_list())
+    return web.json_response(await db.queue_list(request.match_info["guild_id"]))
 
 
 # --- captain selection / draft helpers -----------------------------------------
@@ -81,10 +83,10 @@ async def queue_list(request):
 @routes.post("/captains/highest-mmr")
 async def highest_mmr_captains(request):
     body = await request.json()
-    pool = body["pool"]
+    guild_id, pool = body["guild_id"], body["pool"]
     mmrs = []
     for uid in pool:
-        row = await db.get_mmr(uid)
+        row = await db.get_mmr(guild_id, uid)
         mmrs.append((uid, row["mmr"]))
     mmrs.sort(key=lambda t: t[1], reverse=True)
     return web.json_response({"captains": [mmrs[0][0], mmrs[1][0]]})
@@ -96,10 +98,10 @@ async def balanced_mmr_draft(request):
     SNAKE_PICK_ORDER, so the two teams end up close in total MMR without a
     full combinatorial search over all possible splits."""
     body = await request.json()
-    pool = body["pool"]
+    guild_id, pool = body["guild_id"], body["pool"]
     mmrs = {}
     for uid in pool:
-        row = await db.get_mmr(uid)
+        row = await db.get_mmr(guild_id, uid)
         mmrs[uid] = row["mmr"]
     ranked = sorted(pool, key=lambda p: mmrs[p], reverse=True)
     team_a, team_b = [], []
@@ -113,7 +115,7 @@ async def balanced_mmr_draft(request):
 @routes.post("/matches")
 async def create_match(request):
     body = await request.json()
-    result = await db.create_match(body["captain_a"], body["captain_b"], body["draft_method"], body["team_a"], body["team_b"], body.get("map"))
+    result = await db.create_match(body["guild_id"], body["captain_a"], body["captain_b"], body["draft_method"], body["team_a"], body["team_b"], body.get("map"))
     return web.json_response(result)
 
 
@@ -159,7 +161,7 @@ async def substitute(request):
         return web.json_response({"error": "player_out_not_on_roster"}, status=404)
     if any(p["user_id"] == player_in for p in players):
         return web.json_response({"error": "player_in_already_on_roster"}, status=409)
-    if await db.active_match(player_in):
+    if await db.active_match(match["guild_id"], player_in):
         return web.json_response({"error": "player_in_already_active"}, status=409)
 
     await db.ensure_user(player_in)
@@ -187,13 +189,13 @@ async def predict(request):
 
     await db.ensure_user(user_id)
     try:
-        await db.adjust_balance(user_id, -amount, "inhouse_predict")
+        await db.adjust_balance(match["guild_id"], user_id, -amount, "inhouse_predict")
     except InsufficientBalance:
         return web.json_response({"error": "insufficient_balance"}, status=409)
 
     ok = await db.predict(match_id, user_id, team, amount)
     if not ok:
-        await db.adjust_balance(user_id, amount, "inhouse_predict")
+        await db.adjust_balance(match["guild_id"], user_id, amount, "inhouse_predict")
         return web.json_response({"error": "duplicate_prediction"}, status=409)
     return web.json_response({"ok": True})
 
@@ -344,23 +346,24 @@ async def flags(request):
     return web.json_response(await db.get_flags(request.match_info["match_id"]))
 
 
-@routes.get("/leaderboard")
+@routes.get("/leaderboard/{guild_id}")
 async def leaderboard(request):
+    guild_id = request.match_info["guild_id"]
     limit = int(request.query.get("limit", "10"))
-    return web.json_response(await db.mmr_leaderboard(limit))
+    return web.json_response(await db.mmr_leaderboard(guild_id, limit))
 
 
-@routes.get("/stats/{user_id}")
+@routes.get("/stats/{guild_id}/{user_id}")
 async def stats(request):
-    user_id = request.match_info["user_id"]
-    mmr_row = await db.get_mmr(user_id)
-    recent = await db.get_stats(user_id)
+    guild_id, user_id = request.match_info["guild_id"], request.match_info["user_id"]
+    mmr_row = await db.get_mmr(guild_id, user_id)
+    recent = await db.get_stats(guild_id, user_id)
     return web.json_response({"mmr": mmr_row, "recent": recent})
 
 
-@routes.get("/history/{user_id}")
+@routes.get("/history/{guild_id}/{user_id}")
 async def history(request):
-    return web.json_response(await db.get_history(request.match_info["user_id"]))
+    return web.json_response(await db.get_history(request.match_info["guild_id"], request.match_info["user_id"]))
 
 
 @routes.get("/sweep-candidates")

@@ -10,7 +10,13 @@ load_dotenv()
 
 # --- Secrets / IDs (env-backed) ---
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
-GUILD_ID = int(os.environ["GUILD_ID"])
+
+# Optional: a specific guild to instant-sync commands to during active
+# development (global sync alone takes ~1hr to propagate after a command
+# *definition* changes). Commands still work in every guild either way --
+# this only affects how fast a definition change shows up in this one guild.
+_dev_guild_raw = os.environ.get("DEV_GUILD_ID")
+DEV_GUILD_ID = int(_dev_guild_raw) if _dev_guild_raw and _dev_guild_raw.isdigit() else None
 
 # --- Health check server (no other traffic hits the gateway, so this is
 # only for K8s liveness/readiness probes) ---

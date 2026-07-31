@@ -13,7 +13,7 @@ logger = logging.getLogger("bot.economy")
 
 
 class Economy(commands.Cog):
-    economy_group = app_commands.Group(name="economy", description="Coin economy commands")
+    economy_group = app_commands.Group(name="economy", description="Coin economy commands", guild_only=True)
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -22,14 +22,14 @@ class Economy(commands.Cog):
     @app_commands.describe(user="Whose balance to check (defaults to you)")
     async def balance(self, interaction: discord.Interaction, user: discord.Member | None = None):
         target = user or interaction.user
-        result = await economy_client.get(f"/balance/{target.id}")
+        result = await economy_client.get(f"/balance/{interaction.guild_id}/{target.id}")
         guild_settings = await settings.get(interaction.guild_id)
         await interaction.response.send_message(
             embed=embeds.balance_embed(target, result["balance"], guild_settings["currency_name"], guild_settings["currency_emoji"])
         )
 
     async def _claim(self, interaction: discord.Interaction, period: str):
-        result = await economy_client.post("/claim", {"user_id": str(interaction.user.id), "period": period})
+        result = await economy_client.post("/claim", {"guild_id": str(interaction.guild_id), "user_id": str(interaction.user.id), "period": period})
         if not result["claimed"]:
             ready_at = int(time.time() + result["remaining_seconds"])
             await interaction.response.send_message(
@@ -60,7 +60,7 @@ class Economy(commands.Cog):
 
     @economy_group.command(name="leaderboard", description="Top 10 currency balances")
     async def leaderboard(self, interaction: discord.Interaction):
-        rows = await economy_client.get("/leaderboard", params={"limit": 10})
+        rows = await economy_client.get(f"/leaderboard/{interaction.guild_id}", params={"limit": 10})
         pairs = [(r["user_id"], r["balance"]) for r in rows]
         guild_settings = await settings.get(interaction.guild_id)
         await interaction.response.send_message(
@@ -78,7 +78,7 @@ class Economy(commands.Cog):
             return
 
         try:
-            await economy_client.post("/give", {"giver_id": str(interaction.user.id), "receiver_id": str(user.id), "amount": amount})
+            await economy_client.post("/give", {"guild_id": str(interaction.guild_id), "giver_id": str(interaction.user.id), "receiver_id": str(user.id), "amount": amount})
         except ServiceError:
             await interaction.response.send_message(embed=embeds.error_embed("You don't have enough coins for that."), ephemeral=True)
             return
@@ -94,7 +94,7 @@ class Economy(commands.Cog):
     @app_commands.describe(user="Who to adjust", amount="Amount to add (negative to remove)", reason="Why you're making this adjustment")
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_adjust(self, interaction: discord.Interaction, user: discord.Member, amount: int, reason: str):
-        result = await economy_client.post("/admin-adjust", {"user_id": str(user.id), "amount": amount, "reason": reason})
+        result = await economy_client.post("/admin-adjust", {"guild_id": str(interaction.guild_id), "user_id": str(user.id), "amount": amount, "reason": reason})
         logger.info("Admin %s adjusted %s by %d (%s). New balance: %d", interaction.user.id, user.id, amount, reason, result["new_balance"])
         guild_settings = await settings.get(interaction.guild_id)
         embed = discord.Embed(

@@ -42,6 +42,7 @@ logger = logging.getLogger("bot.inhouse")
 class DraftSession:
     players: list[str]
     channel_id: int
+    guild_id: str
     captains: list[str] = field(default_factory=list)
     pool: list[str] = field(default_factory=list)
     team_a: list[str] = field(default_factory=list)
@@ -84,7 +85,7 @@ class CaptainMethodView(discord.ui.View):
     @discord.ui.button(label="Highest MMR Captains", style=discord.ButtonStyle.secondary)
     async def highest_mmr(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.cog.session
-        result = await inhouse_client.post("/captains/highest-mmr", {"pool": session.players})
+        result = await inhouse_client.post("/captains/highest-mmr", {"guild_id": str(interaction.guild_id), "pool": session.players})
         await self._pick_captains(interaction, result["captains"])
 
     @discord.ui.button(label="Random Captains", style=discord.ButtonStyle.secondary)
@@ -145,7 +146,7 @@ class VolunteerCaptainView(discord.ui.View):
         if needed > 0:
             session = self.cog.session
             remaining_pool = [p for p in session.players if p not in self.volunteers]
-            result = await inhouse_client.post("/captains/highest-mmr", {"pool": remaining_pool})
+            result = await inhouse_client.post("/captains/highest-mmr", {"guild_id": str(interaction.guild_id), "pool": remaining_pool})
             self.volunteers.extend(result["captains"][:needed])
         await self._confirm_captains(interaction, note="[staff-forced] ")
 
@@ -346,7 +347,7 @@ class FinishVoteView(discord.ui.View):
 # ---------------------------------------------------------------------------
 
 class Inhouse(commands.Cog):
-    inhouse_group = app_commands.Group(name="inhouse", description="Inhouse custom-game system")
+    inhouse_group = app_commands.Group(name="inhouse", description="Inhouse custom-game system", guild_only=True)
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -367,7 +368,7 @@ class Inhouse(commands.Cog):
             return
 
         try:
-            result = await inhouse_client.post("/queue/join", {"user_id": user_id})
+            result = await inhouse_client.post("/queue/join", {"guild_id": str(interaction.guild_id), "user_id": user_id})
         except ServiceError as e:
             error_map = {"in_active_match": "You're already in an active match.", "already_queued": "You're already in the queue."}
             await interaction.response.send_message(embed=embeds.error_embed(error_map.get(e.body.get("error"), "Something went wrong.")), ephemeral=True)
@@ -377,7 +378,7 @@ class Inhouse(commands.Cog):
 
         if result["drained_players"] is not None:
             players = result["drained_players"]
-            self.session = DraftSession(players=players, channel_id=interaction.channel_id)
+            self.session = DraftSession(players=players, channel_id=interaction.channel_id, guild_id=str(interaction.guild_id))
             mention_list = ", ".join(f"<@{p}>" for p in players)
             await interaction.channel.send(
                 f"Queue full! {mention_list}\nHow should captains be chosen?", view=CaptainMethodView(self)
@@ -386,7 +387,7 @@ class Inhouse(commands.Cog):
     @inhouse_group.command(name="leave", description="Leave the inhouse queue")
     async def leave(self, interaction: discord.Interaction):
         try:
-            await inhouse_client.post("/queue/leave", {"user_id": str(interaction.user.id)})
+            await inhouse_client.post("/queue/leave", {"guild_id": str(interaction.guild_id), "user_id": str(interaction.user.id)})
         except ServiceError:
             await interaction.response.send_message(embed=embeds.error_embed("You're not in the queue."), ephemeral=True)
             return
@@ -394,7 +395,7 @@ class Inhouse(commands.Cog):
 
     @inhouse_group.command(name="status", description="Show the current inhouse queue")
     async def status(self, interaction: discord.Interaction):
-        rows = await inhouse_client.get("/queue")
+        rows = await inhouse_client.get(f"/queue/{interaction.guild_id}")
         names = ", ".join(f"<@{r['user_id']}>" for r in rows) or "empty"
         await interaction.response.send_message(f"Queue ({len(rows)}/{config.INHOUSE_SIZE}): {names}")
 
@@ -405,11 +406,12 @@ class Inhouse(commands.Cog):
             await interaction.response.send_message(embed=embeds.error_embed("A draft is already in progress."), ephemeral=True)
             return
 
+        guild_id = str(interaction.guild_id)
         await interaction.response.defer()
         drained = None
         for fake_id in config.INHOUSE_TEST_PLAYER_IDS:
             try:
-                result = await inhouse_client.post("/queue/join", {"user_id": fake_id})
+                result = await inhouse_client.post("/queue/join", {"guild_id": guild_id, "user_id": fake_id})
             except ServiceError:
                 continue  # already queued somehow -- skip
             if result["drained_players"] is not None:
@@ -420,12 +422,12 @@ class Inhouse(commands.Cog):
             await interaction.followup.send("Filled the queue with test players but it didn't drain -- make sure you've joined with `/inhouse join` too.")
             return
 
-        self.session = DraftSession(players=drained, channel_id=interaction.channel_id)
+        self.session = DraftSession(players=drained, channel_id=interaction.channel_id, guild_id=guild_id)
         await interaction.followup.send(f"[test mode] Queue full: {', '.join(f'<@{p}>' for p in drained)}")
         await self._auto_resolve_test_draft(interaction.channel, self.session)
 
     async def _auto_resolve_test_draft(self, channel: discord.abc.Messageable, session: DraftSession):
-        result = await inhouse_client.post("/captains/highest-mmr", {"pool": session.players})
+        result = await inhouse_client.post("/captains/highest-mmr", {"guild_id": session.guild_id, "pool": session.players})
         session.captains = result["captains"]
         session.pool = [p for p in session.players if p not in session.captains]
         session.draft_method = "balanced_mmr"
@@ -452,7 +454,7 @@ class Inhouse(commands.Cog):
             await self.finalize_match(channel, session)
 
         elif session.draft_method == "balanced_mmr":
-            result = await inhouse_client.post("/draft/balanced-mmr", {"pool": session.pool})
+            result = await inhouse_client.post("/draft/balanced-mmr", {"guild_id": session.guild_id, "pool": session.pool})
             session.team_a, session.team_b = result["team_a"], result["team_b"]
             await channel.send(
                 f"Balanced teams (by MMR)!\nTeam A: {', '.join(f'<@{p}>' for p in [session.captains[0]] + session.team_a)}\n"
@@ -476,6 +478,7 @@ class Inhouse(commands.Cog):
         chosen_map = await self.run_map_vote(channel, all_players)
 
         result = await inhouse_client.post("/matches", {
+            "guild_id": session.guild_id,
             "captain_a": session.captains[0], "captain_b": session.captains[1],
             "draft_method": session.draft_method, "team_a": team_a, "team_b": team_b,
             "map": chosen_map,
@@ -705,14 +708,14 @@ class Inhouse(commands.Cog):
 
     @inhouse_group.command(name="leaderboard", description="Top 10 inhouse MMR")
     async def leaderboard(self, interaction: discord.Interaction):
-        rows = await inhouse_client.get("/leaderboard")
+        rows = await inhouse_client.get(f"/leaderboard/{interaction.guild_id}")
         await interaction.response.send_message(embed=embeds.inhouse_leaderboard_embed(rows, interaction.guild))
 
     @inhouse_group.command(name="stats", description="Show a user's inhouse stats")
     @app_commands.describe(user="Whose stats to show (defaults to you)")
     async def stats(self, interaction: discord.Interaction, user: discord.Member | None = None):
         target = user or interaction.user
-        result = await inhouse_client.get(f"/stats/{target.id}")
+        result = await inhouse_client.get(f"/stats/{interaction.guild_id}/{target.id}")
         row = result["mmr"]
         total = row["wins"] + row["losses"]
         if total == 0:
@@ -730,7 +733,7 @@ class Inhouse(commands.Cog):
     @app_commands.describe(user="Whose history to show (defaults to you)")
     async def history(self, interaction: discord.Interaction, user: discord.Member | None = None):
         target = user or interaction.user
-        rows = await inhouse_client.get(f"/history/{target.id}")
+        rows = await inhouse_client.get(f"/history/{interaction.guild_id}/{target.id}")
         if not rows:
             await interaction.response.send_message(f"{target.display_name} has no match history yet.")
             return

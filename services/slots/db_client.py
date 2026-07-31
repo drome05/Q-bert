@@ -18,15 +18,15 @@ class DBClient:
         if self.session:
             await self.session.close()
 
-    async def get_balance(self, user_id: str) -> int:
-        async with self.session.get(f"{config.DB_SERVICE_URL}/economy/{user_id}") as resp:
+    async def get_balance(self, guild_id: str, user_id: str) -> int:
+        async with self.session.get(f"{config.DB_SERVICE_URL}/economy/{guild_id}/{user_id}") as resp:
             data = await resp.json()
             return data["balance"]
 
-    async def adjust_balance(self, user_id: str, amount: int, reason: str) -> int:
+    async def adjust_balance(self, guild_id: str, user_id: str, amount: int, reason: str) -> int:
         async with self.session.post(
             f"{config.DB_SERVICE_URL}/economy/adjust",
-            json={"user_id": user_id, "amount": amount, "reason": reason},
+            json={"guild_id": guild_id, "user_id": user_id, "amount": amount, "reason": reason},
         ) as resp:
             data = await resp.json()
             if resp.status == 409:

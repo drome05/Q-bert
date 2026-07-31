@@ -47,30 +47,31 @@ def _stream_payload(stream: dict) -> dict:
 @routes.post("/link")
 async def link(request):
     body = await request.json()
-    user_id, username = body["user_id"], body["twitch_username"].lstrip("@").strip().lower()
+    guild_id, user_id, username = body["guild_id"], body["user_id"], body["twitch_username"].lstrip("@").strip().lower()
     await db.ensure_user(user_id)
-    await db.link(user_id, username)
+    await db.link(guild_id, user_id, username)
     return web.json_response({"ok": True})
 
 
-@routes.delete("/unlink/{user_id}")
+@routes.delete("/unlink/{guild_id}/{user_id}")
 async def unlink(request):
-    ok = await db.unlink(request.match_info["user_id"])
+    ok = await db.unlink(request.match_info["guild_id"], request.match_info["user_id"])
     if not ok:
         return web.json_response({"error": "not_linked"}, status=404)
     return web.json_response({"ok": True})
 
 
-@routes.get("/accounts")
+@routes.get("/accounts/{guild_id}")
 async def accounts(request):
-    return web.json_response(await db.list_accounts())
+    return web.json_response(await db.list_accounts(request.match_info["guild_id"]))
 
 
-@routes.get("/live-status/{user_id}")
+@routes.get("/live-status/{guild_id}/{user_id}")
 async def live_status(request):
     if not (config.TWITCH_CLIENT_ID and config.TWITCH_CLIENT_SECRET):
         return _not_configured()
-    account = await db.get_account(request.match_info["user_id"])
+    guild_id = request.match_info["guild_id"]
+    account = await db.get_account(guild_id, request.match_info["user_id"])
     if account is None:
         return web.json_response({"linked": False})
 
@@ -84,7 +85,7 @@ async def live_status(request):
         return web.json_response({"linked": True, "live": False})
 
     stream = streams[0]
-    await db.update_status(account["user_id"], True, stream["id"])
+    await db.update_status(guild_id, account["user_id"], True, stream["id"])
     return web.json_response({"linked": True, "live": True, "stream": _stream_payload(stream)})
 
 
@@ -93,7 +94,9 @@ async def live_check(request):
     if not (config.TWITCH_CLIENT_ID and config.TWITCH_CLIENT_SECRET):
         return _not_configured()
 
-    accounts_list = await db.list_accounts()
+    body = await request.json()
+    guild_id = body["guild_id"]
+    accounts_list = await db.list_accounts(guild_id)
     if not accounts_list:
         return web.json_response({"events": []})
 
@@ -110,9 +113,9 @@ async def live_check(request):
         if stream:
             if stream["id"] != account["last_stream_id"]:
                 events.append({"user_id": account["user_id"], "stream": _stream_payload(stream)})
-            await db.update_status(account["user_id"], True, stream["id"])
+            await db.update_status(guild_id, account["user_id"], True, stream["id"])
         else:
-            await db.update_status(account["user_id"], False, account["last_stream_id"])
+            await db.update_status(guild_id, account["user_id"], False, account["last_stream_id"])
 
     return web.json_response({"events": events})
 

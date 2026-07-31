@@ -82,13 +82,13 @@ class InsufficientBalance(Exception):
     pass
 
 
-async def get_balance(user_id: str) -> int:
-    row = await fetchone("SELECT balance FROM economy WHERE user_id = ?", (user_id,))
+async def get_balance(guild_id: str, user_id: str) -> int:
+    row = await fetchone("SELECT balance FROM economy WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
     return row["balance"] if row else 0
 
 
-async def adjust_balance(user_id: str, amount: int, reason: str, *, allow_negative: bool = False) -> int:
-    """Atomically adjust a user's balance and log the transaction.
+async def adjust_balance(guild_id: str, user_id: str, amount: int, reason: str, *, allow_negative: bool = False) -> int:
+    """Atomically adjust a user's balance (in one guild) and log the transaction.
 
     This is the single choke point every cog (economy, casino, inhouse) must
     use to touch coin balances, so every mutation is guaranteed to also
@@ -99,19 +99,19 @@ async def adjust_balance(user_id: str, amount: int, reason: str, *, allow_negati
     await ensure_user(user_id)
     async with transaction() as conn:
         await conn.execute(
-            "INSERT INTO economy (user_id, balance) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING",
-            (user_id,),
+            "INSERT INTO economy (guild_id, user_id, balance) VALUES (?, ?, 0) ON CONFLICT(guild_id, user_id) DO NOTHING",
+            (guild_id, user_id),
         )
-        cursor = await conn.execute("SELECT balance FROM economy WHERE user_id = ?", (user_id,))
+        cursor = await conn.execute("SELECT balance FROM economy WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
         row = await cursor.fetchone()
         current = row["balance"]
         new_balance = current + amount
         if new_balance < 0 and not allow_negative:
             raise InsufficientBalance(f"user {user_id} has {current}, cannot apply {amount}")
-        await conn.execute("UPDATE economy SET balance = ? WHERE user_id = ?", (new_balance, user_id))
+        await conn.execute("UPDATE economy SET balance = ? WHERE guild_id = ? AND user_id = ?", (new_balance, guild_id, user_id))
         await conn.execute(
-            "INSERT INTO economy_transactions (user_id, amount, reason) VALUES (?, ?, ?)",
-            (user_id, amount, reason),
+            "INSERT INTO economy_transactions (guild_id, user_id, amount, reason) VALUES (?, ?, ?, ?)",
+            (guild_id, user_id, amount, reason),
         )
         await conn.commit()
         return new_balance

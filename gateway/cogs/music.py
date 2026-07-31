@@ -52,7 +52,7 @@ class GuildPlayer:
 
 
 class Music(commands.Cog):
-    music_group = app_commands.Group(name="music", description="Music playback commands")
+    music_group = app_commands.Group(name="music", description="Music playback commands", guild_only=True)
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot

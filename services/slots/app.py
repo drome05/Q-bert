@@ -24,9 +24,9 @@ db = DBClient()
 @routes.post("/spin")
 async def spin(request):
     body = await request.json()
-    user_id, bet = body["user_id"], body["bet"]
+    guild_id, user_id, bet = body["guild_id"], body["user_id"], body["bet"]
     try:
-        await db.adjust_balance(user_id, -bet, "slots")
+        await db.adjust_balance(guild_id, user_id, -bet, "slots")
     except InsufficientBalance:
         return web.json_response({"error": "insufficient_balance"}, status=409)
 
@@ -47,9 +47,9 @@ async def spin(request):
         multiplier = 0.0
 
     payout = round(bet * multiplier)
-    new_balance = await db.get_balance(user_id)
+    new_balance = await db.get_balance(guild_id, user_id)
     if payout > 0:
-        new_balance = await db.adjust_balance(user_id, payout, "slots")
+        new_balance = await db.adjust_balance(guild_id, user_id, payout, "slots")
     return web.json_response({"reels": reels, "payout": payout, "new_balance": new_balance})
 
 
