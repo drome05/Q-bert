@@ -35,8 +35,6 @@ jobs:
             path: services/inhouse
           - name: twitch-service
             path: services/twitch
-          - name: chat-service
-            path: services/chat
     steps:
       - uses: actions/checkout@v4
 

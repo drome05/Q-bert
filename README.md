@@ -283,28 +283,13 @@ Setup requires free Twitch credentials:
 Until that secret exists, `twitch-service` still runs; it returns "not
 configured" and the poll loop stays idle.
 
-## Casual chat
+## Casual greeting
 
 Saying "qbert say hi/hello/hey" anywhere gets an instant canned greeting.
-Any other message mentioning the bot's name gets routed to `chat-service`,
-which calls a local [Ollama](https://ollama.com) model for a real
-generated reply. Deliberately scoped narrow: casual banter only (gaming,
-sports, whatever) -- the system prompt explicitly deflects coding/technical
-questions with a joke instead of answering them, and there's no
-conversation history between messages.
-
-Ollama runs natively on the host (Mac locally, the EC2 node on AWS), not
-inside the cluster, so the model's memory footprint doesn't compete with
-the rest of the K8s workload. `services/chat/config.py`'s `OLLAMA_URL`
-defaults to `host.docker.internal` (works locally through colima); the
-AWS deployment overrides it to the node's private IP instead, since plain
-containerd/k3s on Linux has no equivalent host alias. Model choice is
-also environment-specific -- `qwen2.5:0.5b` on the AWS box's tight `t3.small`
-memory budget, a larger model is fine with more headroom (e.g. locally).
-`OLLAMA_KEEP_ALIVE` (default `30s`) unloads the model shortly after each
-reply rather than Ollama's 5-minute default, trading a slower cold-start
-on the next message for a much shorter window where the model's memory
-footprint is actually resident.
+(An earlier version routed any other message to a local Ollama model for
+open-ended banter; dropped after it repeatedly made the AWS deployment's
+`t3.small` instance unresponsive under its memory/CPU footprint -- see
+git history around the "chat-service" commits if reviving this.)
 
 ## Known limitations
 
@@ -512,14 +497,15 @@ obvious:
   before switching, since a bigger instance only helps if the schedule
   still fits the credit).
 
-`t3.small` is genuinely tight for the full stack plus Ollama: a cold model
-load pushed available memory down to ~90MB free, and setup-time CPU load
-(image pulls, `ollama pull`, every pod starting at once) burned through
-its burstable CPU credit balance enough to make SSH itself crawl for a
-few minutes (`CPUCreditBalance` metric in CloudWatch, or `uptime`'s load
-average, are the things to check if the box seems to hang). It recovers
-on its own once credits regenerate; this is a real constraint of running
-an LLM on the cheapest burstable instance size, not a bug.
+`t3.small` has, twice, become fully unresponsive under this workload's
+normal operation (not just heavy setup-time load) -- `aws ec2
+describe-instance-status` showed `InstanceStatus: impaired` (reachability
+failed) while `SystemStatus` stayed `ok`, meaning the underlying hardware
+was fine but something inside the guest OS/network stack got stuck. A
+stop/start (not a reboot) reliably resets it in under 2 minutes; k3s comes
+back on its own via its systemd unit. If this becomes frequent under real
+usage, that's a signal this instance size is genuinely undersized for the
+full stack's steady-state needs, not something to keep working around.
 
 No Elastic IP is attached, since AWS bills idle Elastic IPs hourly too
 (a stopped instance has nothing to attach one to) -- there's no cost

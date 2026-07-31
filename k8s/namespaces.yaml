@@ -36,9 +36,4 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: chat
----
-apiVersion: v1
-kind: Namespace
-metadata:
   name: monitoring
