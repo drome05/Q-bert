@@ -5,6 +5,7 @@ the only thing that talks to it; the gateway never calls Ollama directly.
 """
 import asyncio
 import logging
+import random
 
 import aiohttp
 from aiohttp import web
@@ -27,6 +28,9 @@ async def healthz(request):
 async def chat(request):
     body = await request.json()
     message = body["message"]
+
+    if any(kw in message.lower() for kw in config.CODING_KEYWORDS):
+        return web.json_response({"reply": random.choice(config.CODING_DEFLECTIONS)})
 
     payload = {
         "model": config.OLLAMA_MODEL,

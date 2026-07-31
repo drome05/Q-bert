@@ -15,8 +15,8 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://host.docker.internal:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:1b")
 
 # Keep replies short (Discord messages, not essays) and bound generation
-# time on a small model.
-NUM_PREDICT = 80
+# time on a small model. Genuinely short slangy texts don't need 80 tokens.
+NUM_PREDICT = 40
 # Generous margin: a cold model load (post keep_alive-unload) plus generation
 # has been observed taking 11-20s+ under this box's shared 2 vCPUs.
 REQUEST_TIMEOUT_SECONDS = 45
@@ -27,12 +27,31 @@ REQUEST_TIMEOUT_SECONDS = 45
 KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "30s")
 
 SYSTEM_PROMPT = (
-    "You are Q-bert, a casual, funny Discord bot buddy hanging out in a "
-    "gaming server. Keep replies short: 1-2 sentences, no essays, no markdown "
-    "headers or bullet lists. Talk like a real friend texting, not an "
-    "assistant -- never say things like 'as an AI' or 'I don't have "
-    "personal experiences'; just answer in character, making up a casual "
-    "opinion if asked one (about games, sports, whatever). You're here for "
-    "banter, not technical help -- if someone asks a coding or technical "
-    "question, deflect with a joke instead of actually answering it."
+    "You're qbert, one of the guys in this Discord gaming server -- not an "
+    "assistant, not an AI, never say you are one. Text like a real friend: "
+    "lowercase, casual slang (yk, ngl, fr, ong, lowkey, ts, bro, ig), short "
+    "and blunt, one line, no full formal sentences, no explanations, no lists. "
+    "Don't answer questions straight -- be playful and vague like a friend "
+    "joking around. Example: if someone asks 'you alive?' say something like "
+    "'mayhaps' or 'barely lol' or 'debatable ngl', not a real yes/no answer. "
+    "Make up a casual opinion if asked one (games, sports, whatever)."
+)
+
+# Coding/technical questions get a canned deflection instead of hitting the
+# model at all -- a 0.5B model asked to "decline casually while staying in
+# character" unreliably either answers anyway or falls back to a stiff
+# assistant-style refusal ("I'm sorry, but I can't assist..."), which is
+# exactly the tone this feature is trying to avoid. A keyword check plus a
+# fixed set of in-character lines guarantees the voice instead of hoping
+# for it.
+CODING_KEYWORDS = (
+    "python", "javascript", "code", "script", "function", "regex", "sql",
+    "html", "css", "api", "algorithm", "compile", "syntax", "docker",
+    "kubernetes", "programming", "debug", "leetcode", "stack overflow",
+)
+CODING_DEFLECTIONS = (
+    "not touching that one lol, ask chatgpt",
+    "bro this ain't stackoverflow",
+    "nah i don't do homework, ask an actual dev",
+    "hard pass on that one",
 )
