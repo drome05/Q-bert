@@ -89,7 +89,7 @@ class Valorant(commands.Cog):
             embed.add_field(name="Avg ADR", value=str(result["avg_adr"]), inline=True)
             embed.add_field(name="Headshot %", value=f"{result['headshot_pct']}%", inline=True)
             embed.add_field(name="Overall Grade", value=result["grade"], inline=True)
-            embed.set_footer(text=f"Stats from last {result['games_played']} games -- grade is an unofficial estimate, not a Riot stat")
+            embed.set_footer(text=f"Stats from last {result['games_played']} competitive games -- grade is an unofficial estimate, not a Riot stat")
         else:
             embed.set_footer(text="No recent match history to compute performance stats yet")
 

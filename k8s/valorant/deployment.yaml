@@ -24,7 +24,7 @@ spec:
                     values: ["core"]
       containers:
         - name: valorant-service
-          image: valorant-service:v6
+          image: valorant-service:v7
           imagePullPolicy: Never
           envFrom:
             - secretRef:

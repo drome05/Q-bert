@@ -61,7 +61,9 @@ async def rank(request):
 
     stats = {"games_played": 0, "kd": None, "avg_acs": None, "avg_adr": None, "headshot_pct": None, "grade": None}
     try:
-        match_list = await henrik.get_matches(account["region"], account["riot_name"], account["riot_tag"], config.VALORANT_STATS_SAMPLE_SIZE)
+        match_list = await henrik.get_matches(
+            account["region"], account["riot_name"], account["riot_tag"], config.VALORANT_STATS_SAMPLE_SIZE, mode="competitive"
+        )
     except HenrikDevError as e:
         logger.warning("HenrikDev match fetch for /rank stats failed for %s#%s: %s", account["riot_name"], account["riot_tag"], e)
         match_list = []
