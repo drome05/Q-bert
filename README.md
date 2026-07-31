@@ -66,20 +66,33 @@ personal cluster with no internet exposure.
 
 ## Cluster topology
 
-minikube runs as 2 nodes (`minikube` and `minikube-m02`), labeled by role:
+minikube runs as a single node, labeled by role (this repo used to run 2
+nodes; it was collapsed to 1 to free up memory on an 8GB host, see
+"Resource constraints" below):
 
 ```bash
-kubectl label node minikube tier=core
-kubectl label node minikube-m02 tier=games
+kubectl label node minikube tier=games
 ```
 
 - **Casino pods** (`blackjack-service`, `coinflip-service`, `slots-service`)
-  have a hard `nodeAffinity` requiring `tier=games`, so they always land on
-  `minikube-m02`.
+  have a hard `nodeAffinity` requiring `tier=games`.
 - **Everything else** (`db-service`, `economy-service`, `valorant-service`,
   `inhouse-service`, `twitch-service`, `gateway`) has a soft `nodeAffinity`
-  preferring `tier=core`. They land on `minikube` when it has room, but
-  aren't blocked from scheduling elsewhere if it doesn't.
+  preferring `tier=core`. With only one node in the cluster, this preference
+  is currently a no-op; the affinity rules are left in place since they cost
+  nothing and are what you'd relabel around if a second node is ever added
+  back.
+
+### Resource constraints
+
+This runs on an 8GB Apple Silicon Mac via colima, which reserves a single
+fixed-size VM shared by every node in the cluster regardless of node count.
+That VM is currently sized to 3GB (`colima start --memory 3`), leaving the
+rest of the Mac's RAM for normal desktop use. Running a second node roughly
+doubles per-node overhead (its own kubelet, kube-proxy, container runtime)
+for no real gain on a single physical machine, so this repo runs one node.
+If you have more RAM to spare, `minikube start --nodes=2` plus the
+`tier=core`/`tier=games` labels above still works exactly as documented.
 
 Every pod has liveness/readiness probes hitting a `/healthz` route. The
 gateway has no HTTP server otherwise, so it runs a small embedded aiohttp
@@ -160,6 +173,26 @@ re-pushing `v5`) avoids this entirely.
 docker inspect --format='{{.Id}}' valorant-service:v6
 kubectl get pods -n valorant -o jsonpath='{.items[*].spec.containers[0].image}'
 ```
+
+## Monitoring: Prometheus
+
+`k8s/monitoring/` runs a single Prometheus pod (no Grafana, no
+Alertmanager, no node-exporter) scraping per-container CPU/memory straight
+from each node's kubelet (cAdvisor), proxied through the API server. That
+needs no `/metrics` endpoint added to any of the bot's own services, just
+the RBAC in `k8s/monitoring/rbac.yaml` letting Prometheus's service account
+read node/pod info. Deliberately kept minimal given the 8GB host: 6-hour
+retention on `emptyDir` storage (no PVC, fine to lose on pod restart), a
+60s scrape interval, and tight `resources.limits` (256Mi/200m).
+
+Access the UI via port-forward (no Ingress is set up for this):
+```bash
+kubectl port-forward svc/prometheus -n monitoring 9090:9090
+```
+then browse `http://localhost:9090`. `/targets` shows scrape health;
+`/graph` runs PromQL, for example
+`container_memory_working_set_bytes{namespace="casino"}` for per-pod memory
+across the casino services.
 
 ## Configuring the bot: `/settings`
 
@@ -286,7 +319,7 @@ Kubernetes DNS names.
 
 ## Deployment: local Kubernetes (minikube)
 
-The bot runs on a local, 2-node Kubernetes cluster (minikube) on this
+The bot runs on a local, single-node Kubernetes cluster (minikube) on this
 machine: free, real Kubernetes, no cloud signup required. It's only online
 while this machine and minikube are running; there's no 24/7 hosting here.
 A Discord bot must never run 2+ gateway pods on the same token, so
@@ -297,15 +330,14 @@ A Discord bot must never run 2+ gateway pods on the same token, so
 
 ```bash
 brew install colima docker kubectl minikube
-colima start --cpu 4 --memory 4
-minikube start --driver=docker --nodes=2 --cpus=2 --memory=1900
+colima start --cpu 4 --memory 3
+minikube start --driver=docker --cpus=4 --memory=2830
 ```
 
-### 2. Label the nodes for casino affinity
+### 2. Label the node for casino affinity
 
 ```bash
-kubectl label node minikube tier=core
-kubectl label node minikube-m02 tier=games
+kubectl label node minikube tier=games
 ```
 
 ### 3. Build every image directly into minikube
@@ -366,15 +398,18 @@ kubectl cp data/$(kubectl get pod -n data -l app=db-service -o jsonpath='{.items
 ### Restarting after a reboot
 
 Cluster state (deployments, PVC data, ArgoCD) persists on disk as long as
-colima/minikube are only ever stopped, not deleted. The 2-node topology is
-saved in minikube's profile config, so a plain `minikube start` brings both
-nodes back:
+colima/minikube are only ever stopped, not deleted:
 ```bash
 colima start
 minikube start
 ```
-Everything else (the bot, all 8 backend services, database, ArgoCD) resumes
-on its own; no rebuilding or reapplying manifests is needed.
+Everything else (the bot, all backend services, database, ArgoCD,
+Prometheus) resumes on its own; no rebuilding or reapplying manifests is
+needed. Note that resizing colima's VM (`colima stop` /
+`colima start --memory <n>`) restarts the whole VM, which stops minikube's
+node container too; always follow it with `minikube start` to bring the
+node back up, then give CoreDNS a few seconds to settle before expecting
+inter-service DNS lookups to work.
 
 ### Stopping or tearing down
 
