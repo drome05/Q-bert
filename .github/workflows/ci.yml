@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: gateway
+            path: gateway
+          - name: db-service
+            path: services/db
+          - name: economy-service
+            path: services/economy
+          - name: blackjack-service
+            path: services/blackjack
+          - name: coinflip-service
+            path: services/coinflip
+          - name: slots-service
+            path: services/slots
+          - name: valorant-service
+            path: services/valorant
+          - name: inhouse-service
+            path: services/inhouse
+          - name: twitch-service
+            path: services/twitch
+          # chat-service: add back once services/chat/ is committed
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # No test suite exists yet -- a compile check at least catches broken
+      # syntax/imports before it reaches an image, without inventing lint
+      # rules for a codebase that's never been linted.
+      - name: Compile check
+        run: python -m compileall -q "${{ matrix.path }}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.path }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
