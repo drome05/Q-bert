@@ -83,6 +83,17 @@ class Valorant(commands.Cog):
             embed.add_field(name="Peak (this act)", value=result["peak"], inline=False)
         if result.get("icon"):
             embed.set_thumbnail(url=result["icon"])
+
+        if result.get("games_played"):
+            embed.add_field(name="K/D", value=str(result["kd"]), inline=True)
+            embed.add_field(name="Avg ACS", value=str(result["avg_acs"]), inline=True)
+            embed.add_field(name="Avg ADR", value=str(result["avg_adr"]), inline=True)
+            embed.add_field(name="Headshot %", value=f"{result['headshot_pct']}%", inline=True)
+            embed.add_field(name="Overall Grade", value=result["grade"], inline=True)
+            embed.set_footer(text=f"Stats from last {result['games_played']} games -- grade is an unofficial estimate, not a Riot stat")
+        else:
+            embed.set_footer(text="No recent match history to compute performance stats yet")
+
         await interaction.followup.send(embed=embed)
 
     @valorant_group.command(name="matches", description="Show a linked account's recent match history")
@@ -129,6 +140,10 @@ class Valorant(commands.Cog):
             )
             embed.add_field(name="K / D / A", value=f"{m['kills']} / {m['deaths']} / {m['assists']}")
             embed.add_field(name="Score", value=str(m["score"]))
+            # ACS/ADR are None for non-round modes (e.g. Deathmatch), where they aren't meaningful
+            embed.add_field(name="ACS", value=str(round(m["acs"], 1)) if m["acs"] is not None else "N/A")
+            embed.add_field(name="ADR", value=str(round(m["adr"], 1)) if m["adr"] is not None else "N/A")
+            embed.add_field(name="Headshot %", value=f"{round(m['headshot_pct'], 1)}%")
             if m.get("agent_icon"):
                 embed.set_thumbnail(url=m["agent_icon"])
             embed.set_footer(text=f"{target.display_name}'s Recent Matches — {len(pages) + 1}/{len(match_list)}")

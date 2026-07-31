@@ -22,6 +22,7 @@ INITIAL_COGS = (
     "cogs.inhouse",
     "cogs.settings",
     "cogs.twitch",
+    "cogs.music",
 )
 
 

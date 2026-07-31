@@ -1,0 +1,25 @@
+# Applied manually (kubectl apply -f), not synced by ArgoCD itself --
+# avoids the app managing its own Application resource. Everything
+# this Application points at (k8s/) IS synced automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: discord-bot
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/drome05/Q-bert.git
+    targetRevision: main
+    path: k8s
+    directory:
+      recurse: true
+      exclude: "**/secret.example.yaml"   # placeholder files -- would overwrite the real secrets created imperatively (kubectl create secret ...)
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true      # remove resources deleted from git
+      selfHeal: true    # revert any manual kubectl edits back to what's in git
+    syncOptions:
+      - CreateNamespace=false   # namespaces.yaml already creates them explicitly

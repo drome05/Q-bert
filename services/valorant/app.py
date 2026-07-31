@@ -13,6 +13,7 @@ from aiohttp import web
 import config
 from db_client import DBClient
 from henrikdev_client import AccountNotFoundError, HenrikDevClient, HenrikDevError, rank_index
+from stats import compute_grade, extract_player_match
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("valorant-service")
@@ -56,13 +57,45 @@ async def rank(request):
         return web.json_response({"found": False, "linked": True, "error": "unavailable"})
 
     current = mmr.get("current_data", {})
+    tier = current.get("currenttierpatched", "Unranked")
+
+    stats = {"games_played": 0, "kd": None, "avg_acs": None, "avg_adr": None, "headshot_pct": None, "grade": None}
+    try:
+        match_list = await henrik.get_matches(account["region"], account["riot_name"], account["riot_tag"], config.VALORANT_STATS_SAMPLE_SIZE)
+    except HenrikDevError as e:
+        logger.warning("HenrikDev match fetch for /rank stats failed for %s#%s: %s", account["riot_name"], account["riot_tag"], e)
+        match_list = []
+
+    puuid_name = f"{account['riot_name']}#{account['riot_tag']}".lower()
+    all_parsed = [m for m in (extract_player_match(match, puuid_name) for match in match_list) if m is not None]
+    # Deathmatch and similar non-round modes aren't comparable to
+    # round-based K/D and ACS -- excluded from the aggregate entirely
+    # rather than skewing it (see extract_player_match's round_based check).
+    parsed = [m for m in all_parsed if m["acs"] is not None]
+    if parsed:
+        total_kills = sum(m["kills"] for m in parsed)
+        total_deaths = sum(m["deaths"] for m in parsed)
+        kd = total_kills / total_deaths if total_deaths else float(total_kills)
+        avg_acs = sum(m["acs"] for m in parsed) / len(parsed)
+        avg_adr = sum(m["adr"] for m in parsed) / len(parsed)
+        avg_hs = sum(m["headshot_pct"] for m in parsed) / len(parsed)
+        stats = {
+            "games_played": len(parsed),
+            "kd": round(kd, 2),
+            "avg_acs": round(avg_acs, 1),
+            "avg_adr": round(avg_adr, 1),
+            "headshot_pct": round(avg_hs, 1),
+            "grade": compute_grade(rank_index(tier), avg_acs, kd),
+        }
+
     return web.json_response({
         "found": True,
         "linked": True,
-        "tier": current.get("currenttierpatched", "Unranked"),
+        "tier": tier,
         "rr": current.get("ranking_in_tier", 0),
         "icon": (current.get("images") or {}).get("small"),
         "peak": (mmr.get("highest_rank") or {}).get("patched_tier"),
+        **stats,
     })
 
 
@@ -84,34 +117,7 @@ async def matches(request):
         return web.json_response({"found": False, "linked": True, "error": "unavailable"})
 
     puuid_name = f"{account['riot_name']}#{account['riot_tag']}".lower()
-    parsed = []
-    for match in match_list:
-        meta = match.get("metadata", {})
-        players = (match.get("players") or {}).get("all_players", [])
-        me = next((p for p in players if f"{p.get('name')}#{p.get('tag')}".lower() == puuid_name), None)
-        if me is None:
-            continue
-        stats = me.get("stats", {})
-        team_name = me.get("team", "").lower()
-        teams = match.get("teams") or {}
-        team_score = (teams.get(team_name) or {}).get("rounds_won", "?")
-        other_team = "blue" if team_name == "red" else "red"
-        other_score = (teams.get(other_team) or {}).get("rounds_won", "?")
-        won = (teams.get(team_name) or {}).get("has_won", False)
-        agent_icon = (me.get("assets") or {}).get("agent", {}).get("small")
-        parsed.append({
-            "map": meta.get("map", "?"),
-            "mode": meta.get("mode", "?"),
-            "won": won,
-            "team_score": team_score,
-            "other_score": other_score,
-            "character": me.get("character", "?"),
-            "agent_icon": agent_icon,
-            "kills": stats.get("kills", 0),
-            "deaths": stats.get("deaths", 0),
-            "assists": stats.get("assists", 0),
-            "score": stats.get("score", "?"),
-        })
+    parsed = [m for m in (extract_player_match(match, puuid_name) for match in match_list) if m is not None]
 
     return web.json_response({"found": True, "linked": True, "matches": parsed})
 
