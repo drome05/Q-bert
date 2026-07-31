@@ -1,0 +1,313 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+import random
+import asyncio
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+intents.voice_states = True
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+class TenManGame:
+    def __init__(self):
+        self.players = []
+        self.team1 = []
+        self.team2 = []
+        self.captain1 = None
+        self.captain2 = None
+        self.maps = ['Bind', 'Haven', 'Split', 'Fracture', 'Breeze', 'Corrode', 'Abyss', 'Sunset', 'Lotus', 'Pearl', 'Icebox', 'Ascent']
+        self.available_maps = []
+        self.selected_map = None
+        self.draft_phase = False
+        self.ban_phase = False
+        self.current_picker = None
+        self.team1_channel = None
+        self.team2_channel = None
+
+class TenManView(discord.ui.View):
+    def __init__(self, game):
+        super().__init__(timeout=None)
+        self.game = game
+
+    @discord.ui.button(label="Join Queue", style=discord.ButtonStyle.green, custom_id="join_queue")
+    async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user in self.game.players:
+            await interaction.response.send_message("You're already in the queue!", ephemeral=True)
+            return
+        
+        if len(self.game.players) >= 10:
+            await interaction.response.send_message("Queue is full!", ephemeral=True)
+            return
+        
+        self.game.players.append(interaction.user)
+        await interaction.response.send_message(f"Added to queue! ({len(self.game.players)}/10)", ephemeral=True)
+        
+        if len(self.game.players) == 10:
+            await interaction.followup.send("Queue is full! Starting captain selection...")
+            await self.start_game(interaction.channel)
+
+    @discord.ui.button(label="Leave Queue", style=discord.ButtonStyle.red, custom_id="leave_queue")
+    async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user not in self.game.players:
+            await interaction.response.send_message("You're not in the queue!", ephemeral=True)
+            return
+        
+        self.game.players.remove(interaction.user)
+        await interaction.response.send_message(f"Removed from queue! ({len(self.game.players)}/10)", ephemeral=True)
+
+    async def start_game(self, channel):
+        # Select random captains
+        captains = random.sample(self.game.players, 2)
+        self.game.captain1 = captains[0]
+        self.game.captain2 = captains[1]
+        
+        await channel.send(f"**Captains selected!**\nTeam 1: {self.game.captain1.mention}\nTeam 2: {self.game.captain2.mention}")
+        
+        # Start map banning
+        self.game.available_maps = self.game.maps.copy()
+        self.game.ban_phase = True
+        await self.start_map_banning(channel)
+
+    async def start_map_banning(self, channel):
+        ban_view = MapBanView(self.game, channel)
+        embed = discord.Embed(title="Map Banning Phase", description=f"{self.game.captain1.mention}'s turn to ban", color=discord.Color.blue())
+        embed.add_field(name="Available Maps", value="\n".join(self.game.available_maps))
+        await channel.send(embed=embed, view=ban_view)
+
+class MapBanView(discord.ui.View):
+    def __init__(self, game, channel):
+        super().__init__(timeout=120)
+        self.game = game
+        self.channel = channel
+        self.current_captain = game.captain1
+        self.bans = 0
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.clear_items()
+        for map_name in self.game.available_maps:
+            button = discord.ui.Button(label=map_name, style=discord.ButtonStyle.primary)
+            button.callback = self.create_ban_callback(map_name)
+            self.add_item(button)
+
+    def create_ban_callback(self, map_name):
+        async def ban_callback(interaction: discord.Interaction):
+            if interaction.user != self.current_captain:
+                await interaction.response.send_message("It's not your turn!", ephemeral=True)
+                return
+
+            self.game.available_maps.remove(map_name)
+            self.bans += 1
+            
+            await interaction.response.send_message(f"{interaction.user.mention} banned **{map_name}**!")
+
+            if len(self.game.available_maps) == 1:
+                self.game.selected_map = self.game.available_maps[0]
+                await self.channel.send(f"**Map selected: {self.game.selected_map}**\n\nStarting draft phase...")
+                await self.start_draft()
+                return
+
+            # Switch captain
+            self.current_captain = self.game.captain2 if self.current_captain == self.game.captain1 else self.game.captain1
+            
+            self.update_buttons()
+            embed = discord.Embed(title="Map Banning Phase", description=f"{self.current_captain.mention}'s turn to ban", color=discord.Color.blue())
+            embed.add_field(name="Available Maps", value="\n".join(self.game.available_maps))
+            await self.channel.send(embed=embed, view=self)
+
+        return ban_callback
+
+    async def start_draft(self):
+        self.game.draft_phase = True
+        remaining_players = [p for p in self.game.players if p not in [self.game.captain1, self.game.captain2]]
+        random.shuffle(remaining_players)
+        
+        # Captains pick first
+        self.game.current_picker = self.game.captain1
+        
+        draft_view = DraftView(self.game, self.channel, remaining_players)
+        await draft_view.show_draft_ui()
+
+class DraftView(discord.ui.View):
+    def __init__(self, game, channel, remaining_players):
+        super().__init__(timeout=300)
+        self.game = game
+        self.channel = channel
+        self.remaining_players = remaining_players
+        self.pick_order = [1, 2, 2, 1, 1, 2, 2, 1]  # Snake draft
+        self.pick_index = 0
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.clear_items()
+        for player in self.remaining_players:
+            button = discord.ui.Button(label=player.display_name, style=discord.ButtonStyle.success)
+            button.callback = self.create_pick_callback(player)
+            self.add_item(button)
+
+    def create_pick_callback(self, player):
+        async def pick_callback(interaction: discord.Interaction):
+            current_captain = self.game.captain1 if self.pick_order[self.pick_index] == 1 else self.game.captain2
+            
+            if interaction.user != current_captain:
+                await interaction.response.send_message("It's not your turn to pick!", ephemeral=True)
+                return
+
+            # Add player to team
+            if self.pick_order[self.pick_index] == 1:
+                self.game.team1.append(player)
+                await interaction.response.send_message(f"Team 1 picked: {player.mention}")
+            else:
+                self.game.team2.append(player)
+                await interaction.response.send_message(f"Team 2 picked: {player.mention}")
+
+            self.remaining_players.remove(player)
+            self.pick_index += 1
+
+            if len(self.remaining_players) == 0:
+                # Add captains to their teams
+                self.game.team1.insert(0, self.game.captain1)
+                self.game.team2.insert(0, self.game.captain2)
+                
+                await self.finish_draft()
+                return
+
+            self.update_buttons()
+            next_captain = self.game.captain1 if self.pick_order[self.pick_index] == 1 else self.game.captain2
+            
+            embed = discord.Embed(title="Draft Phase", description=f"{next_captain.mention}'s turn to pick", color=discord.Color.green())
+            embed.add_field(name="Team 1", value="\n".join([p.mention for p in self.game.team1]) if self.game.team1 else "No picks yet")
+            embed.add_field(name="Team 2", value="\n".join([p.mention for p in self.game.team2]) if self.game.team2 else "No picks yet")
+            await self.channel.send(embed=embed, view=self)
+
+        return pick_callback
+
+    async def show_draft_ui(self):
+        embed = discord.Embed(title="Draft Phase", description=f"{self.game.captain1.mention}'s turn to pick", color=discord.Color.green())
+        embed.add_field(name="Team 1 Captain", value=self.game.captain1.mention)
+        embed.add_field(name="Team 2 Captain", value=self.game.captain2.mention)
+        await self.channel.send(embed=embed, view=self)
+
+    async def finish_draft(self):
+        embed = discord.Embed(title="Teams Finalized!", color=discord.Color.gold())
+        embed.add_field(name="Team 1", value="\n".join([p.mention for p in self.game.team1]), inline=True)
+        embed.add_field(name="Team 2", value="\n".join([p.mention for p in self.game.team2]), inline=True)
+        embed.add_field(name="Map", value=self.game.selected_map, inline=False)
+        await self.channel.send(embed=embed)
+        
+        # Move players to voice channels
+        await self.move_to_voice_channels()
+
+    async def move_to_voice_channels(self):
+        guild = self.channel.guild
+        
+        # Find or create team voice channels
+        team1_channel = discord.utils.get(guild.voice_channels, name="Team 1")
+        team2_channel = discord.utils.get(guild.voice_channels, name="Team 2")
+        
+        if not team1_channel:
+            team1_channel = await guild.create_voice_channel("Team 1")
+        if not team2_channel:
+            team2_channel = await guild.create_voice_channel("Team 2")
+
+        # Move players
+        for player in self.game.team1:
+            if player.voice and player.voice.channel:
+                try:
+                    await player.move_to(team1_channel)
+                except:
+                    pass
+
+        for player in self.game.team2:
+            if player.voice and player.voice.channel:
+                try:
+                    await player.move_to(team2_channel)
+                except:
+                    pass
+
+        await self.channel.send("Players have been moved to their team voice channels!")
+
+# Global game instance
+current_game = None
+
+@bot.event
+async def on_ready():
+    print(f'{bot.user} is now running!')
+    # Set bot status
+    await bot.change_presence(activity=discord.Game(name="10-Mans | /tenman"))
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(f"Error syncing commands: {e}")
+
+# Track if bot just woke up
+bot_just_started = True
+
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    global bot_just_started
+    
+    # If this is the first interaction after startup, send wake-up message
+    if bot_just_started and interaction.type == discord.InteractionType.application_command:
+        bot_just_started = False
+        # Send a quick ephemeral message before processing
+        try:
+            await interaction.response.send_message(
+                "⏰ **Yawn...** Q-bert was taking a nap! Give me a moment to wake up...",
+                ephemeral=True
+            )
+            await asyncio.sleep(1)
+        except:
+            pass
+
+@bot.tree.command(name="tenman", description="Start a 10-man queue")
+async def tenman(interaction: discord.Interaction):
+    global current_game, bot_just_started
+    
+    # Reset the wake-up flag since we're handling a command
+    if bot_just_started:
+        bot_just_started = False
+        await interaction.response.send_message(
+            "⏰ **Q-bert was napping!** Starting up the 10-man system...",
+            ephemeral=True
+        )
+        await asyncio.sleep(2)
+        # Now send the actual response
+        await interaction.followup.send(embed=discord.Embed(
+            title="10-Man Queue", 
+            description="Click Join Queue to enter!", 
+            color=discord.Color.blue()
+        ).add_field(name="Players", value=f"0/10"), view=TenManView(TenManGame()))
+        current_game = TenManGame()
+        return
+    
+    if current_game and len(current_game.players) > 0:
+        await interaction.response.send_message("A game is already in progress!", ephemeral=True)
+        return
+    
+    current_game = TenManGame()
+    view = TenManView(current_game)
+    
+    embed = discord.Embed(title="10-Man Queue", description="Click Join Queue to enter!", color=discord.Color.blue())
+    embed.add_field(name="Players", value=f"0/10")
+    
+    await interaction.response.send_message(embed=embed, view=view)
+
+@bot.tree.command(name="reset", description="Reset the current 10-man game")
+async def reset(interaction: discord.Interaction):
+    global current_game
+    current_game = None
+    await interaction.response.send_message("Game reset! Use /tenman to start a new queue.")
+
+# Run the bot
+import os
+# Get token from environment variable (for Replit/hosting)
+TOKEN = os.getenv('DISCORD_TOKEN')
+if not TOKEN:
+    print("ERROR: No token found! Add DISCORD_TOKEN to your environment variables.")
+else:
+    bot.run(TOKEN)
