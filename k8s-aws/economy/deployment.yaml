@@ -24,7 +24,7 @@ spec:
                     values: ["core"]
       containers:
         - name: economy-service
-          image: ghcr.io/drome05/economy-service:d75d24f69b08730846fa64f177a1d9128cc32088
+          image: ghcr.io/drome05/economy-service:27ee8a1c2b23aae38c2229dd0db88777203ea412
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

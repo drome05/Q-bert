@@ -1,7 +1,7 @@
 import time
 import boto3
 
-INSTANCE_ID = "i-01166dd7542fb3a6b"
+INSTANCE_ID = "i-0dbaf0cea0faa5ddf"
 IP_PARAMETER_NAME = "/discord-bot/current-ip"
 
 ec2 = boto3.client("ec2")

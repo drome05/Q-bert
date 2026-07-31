@@ -283,6 +283,29 @@ Setup requires free Twitch credentials:
 Until that secret exists, `twitch-service` still runs; it returns "not
 configured" and the poll loop stays idle.
 
+## Casual chat
+
+Saying "qbert say hi/hello/hey" anywhere gets an instant canned greeting.
+Any other message mentioning the bot's name gets routed to `chat-service`,
+which calls a local [Ollama](https://ollama.com) model for a real
+generated reply. Deliberately scoped narrow: casual banter only (gaming,
+sports, whatever) -- the system prompt explicitly deflects coding/technical
+questions with a joke instead of answering them, and there's no
+conversation history between messages.
+
+Ollama runs natively on the host (Mac locally, the EC2 node on AWS), not
+inside the cluster, so the model's memory footprint doesn't compete with
+the rest of the K8s workload. `services/chat/config.py`'s `OLLAMA_URL`
+defaults to `host.docker.internal` (works locally through colima); the
+AWS deployment overrides it to the node's private IP instead, since plain
+containerd/k3s on Linux has no equivalent host alias. Model choice is
+also environment-specific -- `qwen2.5:0.5b` on the AWS box's tight `t3.small`
+memory budget, a larger model is fine with more headroom (e.g. locally).
+`OLLAMA_KEEP_ALIVE` (default `30s`) unloads the model shortly after each
+reply rather than Ollama's 5-minute default, trading a slower cold-start
+on the next message for a much shorter window where the model's memory
+footprint is actually resident.
+
 ## Known limitations
 
 - **No `/valorant store` or `/valorant link-store`.** There is no public,
@@ -459,13 +482,44 @@ gateway --replicas=0` on the EC2 box is enough.
 
 ### Scheduled stop/start
 
-The EC2 instance stops at 4am and starts at 9pm, America/Chicago time
+The EC2 instance stops at 7am and starts at 7pm, America/Chicago time
 (matching when the server's actually active), via an EventBridge
 Scheduler schedule invoking a small Lambda (`discord-bot-ec2-scheduler`)
 that calls `ec2:StopInstances`/`StartInstances`. A stopped instance costs
 nothing for compute, only the EBS volume (~$1.60/month for 20GB) --
 meaningful savings against a limited promotional credit if the box isn't
-needed 24/7.
+needed 24/7. At `t3.small` pricing, this 12h/day window costs roughly
+$8-9/month in compute; the account's promotional credit is the binding
+constraint on how long this runs, not the schedule itself.
+
+### Instance sizing gotchas (new/promotional AWS accounts)
+
+Two account-level restrictions showed up that aren't documented anywhere
+obvious:
+- `ec2:ModifyInstanceAttribute` to resize an existing instance's type is
+  blocked on new/promotional accounts (`FreeTierRestrictionError`), even
+  for a dry-run-approved size. Terminating and launching fresh at the new
+  size works instead, if there's no data on the instance worth keeping
+  (back it up first if there is -- see the backup command in the local
+  deployment section, same idea, different `kubectl` context).
+- Directly launching a non-free-tier-eligible instance type
+  (`InvalidParameterCombination`) is also blocked. Check what's actually
+  allowed with `aws ec2 describe-instance-types --filters
+  Name=free-tier-eligible,Values=true`; it includes more than just
+  `t3.micro` (notably `c7i-flex.large` and `m7i-flex.large`, which have
+  real RAM, but cost enough more per hour that they only make sense with a
+  much shorter daily runtime -- run the compute-hours-per-dollar math
+  before switching, since a bigger instance only helps if the schedule
+  still fits the credit).
+
+`t3.small` is genuinely tight for the full stack plus Ollama: a cold model
+load pushed available memory down to ~90MB free, and setup-time CPU load
+(image pulls, `ollama pull`, every pod starting at once) burned through
+its burstable CPU credit balance enough to make SSH itself crawl for a
+few minutes (`CPUCreditBalance` metric in CloudWatch, or `uptime`'s load
+average, are the things to check if the box seems to hang). It recovers
+on its own once credits regenerate; this is a real constraint of running
+an LLM on the cheapest burstable instance size, not a bug.
 
 No Elastic IP is attached, since AWS bills idle Elastic IPs hourly too
 (a stopped instance has nothing to attach one to) -- there's no cost
