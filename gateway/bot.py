@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 import discord
+from aiohttp import web
 from discord import app_commands
 from discord.ext import commands
 
@@ -24,15 +25,36 @@ INITIAL_COGS = (
 )
 
 
+async def _healthz_live(request):
+    return web.json_response({"status": "alive"})
+
+
 class DiscordBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.members = True
         intents.voice_states = True
         super().__init__(command_prefix="!", intents=intents)
+        self._health_runner = None
+
+    async def _healthz_ready(self, request):
+        if self.is_ready():
+            return web.json_response({"status": "ready"})
+        return web.json_response({"status": "not_ready"}, status=503)
+
+    async def _start_health_server(self):
+        app = web.Application()
+        app.router.add_get("/healthz/live", _healthz_live)
+        app.router.add_get("/healthz/ready", self._healthz_ready)
+        self._health_runner = web.AppRunner(app)
+        await self._health_runner.setup()
+        site = web.TCPSite(self._health_runner, "0.0.0.0", config.HEALTH_PORT)
+        await site.start()
+        logger.info("Health server listening on :%d", config.HEALTH_PORT)
 
     async def setup_hook(self):
         await start_all()
+        await self._start_health_server()
         for cog in INITIAL_COGS:
             await self.load_extension(cog)
             logger.info("Loaded extension %s", cog)
@@ -46,6 +68,8 @@ class DiscordBot(commands.Bot):
         logger.info("Logged in as %s (id: %s)", self.user, self.user.id)
 
     async def close(self):
+        if self._health_runner is not None:
+            await self._health_runner.cleanup()
         await close_all()
         await super().close()
 

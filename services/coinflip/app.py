@@ -14,6 +14,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("coinflip-service")
 
 routes = web.RouteTableDef()
+
+
+@routes.get("/healthz")
+async def healthz(request):
+    return web.json_response({"status": "ok"})
+
 db = DBClient()
 
 

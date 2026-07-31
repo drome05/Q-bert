@@ -24,12 +24,26 @@ spec:
                     values: ["core"]
       containers:
         - name: twitch-service
-          image: twitch-service:latest
+          image: twitch-service:v2
           imagePullPolicy: Never
           envFrom:
             - secretRef:
                 name: twitch-secrets
                 optional: true   # TWITCH_CLIENT_ID/SECRET are optional -- the service runs fine without them, just returns "not configured" until you add the secret
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
           resources:
             requests:
               cpu: "50m"

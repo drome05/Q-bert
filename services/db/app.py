@@ -21,6 +21,11 @@ logger = logging.getLogger("db-service")
 routes = web.RouteTableDef()
 
 
+@routes.get("/healthz")
+async def healthz(request):
+    return web.json_response({"status": "ok"})
+
+
 def _row(row) -> dict | None:
     return dict(row) if row is not None else None
 

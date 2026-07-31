@@ -26,11 +26,29 @@ spec:
                     values: ["core"]
       containers:
         - name: gateway
-          image: gateway:latest
+          image: gateway:v2
           imagePullPolicy: Never
           envFrom:
             - secretRef:
                 name: gateway-secrets
+          ports:
+            - containerPort: 8080
+          startupProbe:   # covers cog loading + Discord command sync, which can take longer than a steady-state probe window
+            httpGet:
+              path: /healthz/live
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready   # only 200s once the gateway is actually connected to Discord
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz/live   # process/event-loop alive, independent of Discord connection state
+              port: 8080
+            periodSeconds: 15
           resources:
             requests:
               cpu: "250m"

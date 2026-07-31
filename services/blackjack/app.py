@@ -12,6 +12,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("blackjack-service")
 
 routes = web.RouteTableDef()
+
+
+@routes.get("/healthz")
+async def healthz(request):
+    return web.json_response({"status": "ok"})
+
 db = DBClient()
 
 RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]

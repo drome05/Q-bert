@@ -19,6 +19,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("twitch-service")
 
 routes = web.RouteTableDef()
+
+
+@routes.get("/healthz")
+async def healthz(request):
+    return web.json_response({"status": "ok"})
+
 db = DBClient()
 session: aiohttp.ClientSession | None = None
 twitch: TwitchClient | None = None

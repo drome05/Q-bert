@@ -24,8 +24,22 @@ spec:
                     values: ["core"]
       containers:
         - name: inhouse-service
-          image: inhouse-service:latest
+          image: inhouse-service:v2
           imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
           resources:
             requests:
               cpu: "100m"

@@ -12,6 +12,10 @@ load_dotenv()
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 GUILD_ID = int(os.environ["GUILD_ID"])
 
+# --- Health check server (no other traffic hits the gateway, so this is
+# only for K8s liveness/readiness probes) ---
+HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "8080"))
+
 # --- Backend service URLs (ClusterIP DNS names in K8s; override for local dev) ---
 DB_SERVICE_URL = os.environ.get("DB_SERVICE_URL", "http://db-service.data.svc.cluster.local")
 BLACKJACK_SERVICE_URL = os.environ.get("BLACKJACK_SERVICE_URL", "http://blackjack-service.casino.svc.cluster.local")
