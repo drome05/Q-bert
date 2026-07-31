@@ -4,7 +4,8 @@ metadata:
   name: gateway
   namespace: gateway
 spec:
-  replicas: 1   # never run 2+ pods of a single-token bot at once -- double-connects the Discord gateway
+  replicas: 0   # AWS copy is holding the one live gateway connection for this token right now;
+                # flip back to 1 (and scale the AWS deployment to 0) to make local primary again
   strategy:
     type: Recreate
   selector:
