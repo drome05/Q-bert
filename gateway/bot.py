@@ -24,6 +24,7 @@ INITIAL_COGS = (
     "cogs.twitch",
     "cogs.music",
     "cogs.help",
+    "cogs.greetings",
 )
 
 
@@ -36,6 +37,7 @@ class DiscordBot(commands.Bot):
         intents = discord.Intents.default()
         intents.members = True
         intents.voice_states = True
+        intents.message_content = True  # needed to read plain messages for cogs.greetings' "qbert say hi" trigger
         super().__init__(command_prefix="!", intents=intents)
         self._health_runner = None
 
