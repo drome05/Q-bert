@@ -1,0 +1,11 @@
+.env
+data/
+*.db
+*.db-journal
+__pycache__/
+*.pyc
+.venv/
+venv/
+.git/
+k8s/
+README.md

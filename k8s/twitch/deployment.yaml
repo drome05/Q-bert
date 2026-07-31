@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: twitch-service
+  namespace: twitch
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: twitch-service
+  template:
+    metadata:
+      labels:
+        app: twitch-service
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["core"]
+      containers:
+        - name: twitch-service
+          image: twitch-service:latest
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: twitch-secrets
+                optional: true   # TWITCH_CLIENT_ID/SECRET are optional -- the service runs fine without them, just returns "not configured" until you add the secret
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "150m"
+              memory: "128Mi"

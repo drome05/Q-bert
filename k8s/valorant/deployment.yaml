@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valorant-service
+  namespace: valorant
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: valorant-service
+  template:
+    metadata:
+      labels:
+        app: valorant-service
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["core"]
+      containers:
+        - name: valorant-service
+          image: valorant-service:latest
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: valorant-secrets
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "150m"
+              memory: "128Mi"

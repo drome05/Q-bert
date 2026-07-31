@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blackjack-service
+  namespace: casino
+spec:
+  replicas: 1   # holds in-memory hand state; keep single-replica so sessions don't split across pods
+  selector:
+    matchLabels:
+      app: blackjack-service
+  template:
+    metadata:
+      labels:
+        app: blackjack-service
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: tier
+                    operator: In
+                    values: ["games"]
+      containers:
+        - name: blackjack-service
+          image: blackjack-service:latest
+          imagePullPolicy: Never
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "150m"
+              memory: "128Mi"
