@@ -1,5 +1,5 @@
 .env
-data/
+/data/
 *.db
 *.db-journal
 __pycache__/

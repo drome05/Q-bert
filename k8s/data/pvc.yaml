@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bot-data-pvc
+  namespace: data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard   # minikube's built-in default (hostpath-backed)
+  resources:
+    requests:
+      storage: 5Gi
