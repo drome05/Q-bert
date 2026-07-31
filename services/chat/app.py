@@ -33,6 +33,7 @@ async def chat(request):
         "prompt": message,
         "system": config.SYSTEM_PROMPT,
         "stream": False,
+        "keep_alive": config.KEEP_ALIVE,
         "options": {"num_predict": config.NUM_PREDICT},
     }
     try:
