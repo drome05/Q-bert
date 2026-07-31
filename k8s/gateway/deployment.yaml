@@ -4,8 +4,8 @@ metadata:
   name: gateway
   namespace: gateway
 spec:
-  replicas: 0   # AWS copy is holding the one live gateway connection for this token right now;
-                # flip back to 1 (and scale the AWS deployment to 0) to make local primary again
+  replicas: 1   # local is primary again while the AWS box recovers from a CPU-credit crunch;
+                # AWS's own gateway should be scaled to 0 once that instance is reachable again
   strategy:
     type: Recreate
   selector:
