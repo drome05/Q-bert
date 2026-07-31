@@ -31,6 +31,7 @@ ECONOMY_SERVICE_URL = os.environ.get("ECONOMY_SERVICE_URL", "http://economy-serv
 VALORANT_SERVICE_URL = os.environ.get("VALORANT_SERVICE_URL", "http://valorant-service.valorant.svc.cluster.local")
 INHOUSE_SERVICE_URL = os.environ.get("INHOUSE_SERVICE_URL", "http://inhouse-service.inhouse.svc.cluster.local")
 TWITCH_SERVICE_URL = os.environ.get("TWITCH_SERVICE_URL", "http://twitch-service.twitch.svc.cluster.local")
+CHAT_SERVICE_URL = os.environ.get("CHAT_SERVICE_URL", "http://chat-service.chat.svc.cluster.local")
 
 COINFLIP_TIMEOUT_SECONDS = 5 * 60  # UI-only concern (how long the Accept/Decline view stays up), stays in the gateway
 

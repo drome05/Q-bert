@@ -12,8 +12,9 @@ economy_client = ServiceClient(config.ECONOMY_SERVICE_URL)
 valorant_client = ServiceClient(config.VALORANT_SERVICE_URL)
 inhouse_client = ServiceClient(config.INHOUSE_SERVICE_URL)
 twitch_client = ServiceClient(config.TWITCH_SERVICE_URL)
+chat_client = ServiceClient(config.CHAT_SERVICE_URL)
 
-ALL_CLIENTS = [db_client, blackjack_client, coinflip_client, slots_client, economy_client, inhouse_client, valorant_client, twitch_client]
+ALL_CLIENTS = [db_client, blackjack_client, coinflip_client, slots_client, economy_client, inhouse_client, valorant_client, twitch_client, chat_client]
 
 
 async def start_all():

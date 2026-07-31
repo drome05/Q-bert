@@ -35,7 +35,8 @@ jobs:
             path: services/inhouse
           - name: twitch-service
             path: services/twitch
-          # chat-service: add back once services/chat/ is committed
+          - name: chat-service
+            path: services/chat
     steps:
       - uses: actions/checkout@v4
 
