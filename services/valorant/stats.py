@@ -6,7 +6,13 @@ import config
 
 
 def extract_player_match(match: dict, puuid_name: str) -> dict | None:
-    meta = match.get("metadata", {})
+    # HenrikDev sometimes returns a stub record (is_available=False,
+    # metadata/players/teams all null) for a match it hasn't fully
+    # indexed yet -- treat it the same as "not found in this match".
+    if not match.get("is_available", True):
+        return None
+
+    meta = match.get("metadata") or {}
     rounds_played = meta.get("rounds_played") or 0
     players = (match.get("players") or {}).get("all_players", [])
     me = next((p for p in players if f"{p.get('name')}#{p.get('tag')}".lower() == puuid_name), None)
