@@ -419,6 +419,67 @@ minikube stop                                    # pause the whole cluster, fast
 minikube delete                                  # fully remove the cluster
 ```
 
+## Deployment: AWS (k3s on EC2)
+
+A second, independent deployment target exists for real cloud/DevOps
+practice: [k3s](https://k3s.io) (a lightweight, CNCF-certified Kubernetes
+distribution -- same `kubectl`, same manifests) running on a single EC2
+instance, using `k8s-aws/` instead of `k8s/`. It's deployed by hand
+(`kubectl apply`), not through ArgoCD -- that's a separate cluster ArgoCD
+should never be pointed at.
+
+**Key differences from the local deployment:**
+- Images pull from `ghcr.io/drome05/<service>:<commit-sha>` (built by the
+  GitHub Actions CI pipeline) instead of being built and loaded locally.
+  Pin the exact commit SHA in each `k8s-aws/*/deployment.yaml`, not
+  `:latest` -- same stale-tag lesson as the local setup, just enforced by
+  convention here instead of by `minikube image load`'s behavior.
+- Single replica everywhere (the local doubled replicas on some services
+  are only there for k8s practice, not real redundancy).
+- `local-path` storage class (k3s's default) instead of minikube's
+  `standard`.
+- **Instance architecture must match the images CI built.** GitHub's
+  runners are x86 (`linux/amd64`), so the EC2 instance needs to be an x86
+  type (`t3.small`, not a Graviton/ARM `t4g.*`) unless CI is changed to
+  produce multi-arch images.
+
+### One bot token, two clusters
+
+A Discord bot token can only hold one live gateway connection. Only one of
+the two `gateway` Deployments (local `k8s/gateway`, cloud
+`k8s-aws/gateway`) should ever be scaled above 0 replicas at a time.
+
+Locally, this has to go through git, not a raw `kubectl scale` --
+ArgoCD's self-heal will revert a manual scale back to whatever's
+committed within minutes (or instantly with a forced refresh). Flip
+`replicas` in `k8s/gateway/deployment.yaml`, commit, push, and force a
+sync (see the ArgoCD section above). On the AWS side, since that cluster
+isn't ArgoCD-managed, a plain `kubectl scale deployment gateway -n
+gateway --replicas=0` on the EC2 box is enough.
+
+### Scheduled stop/start
+
+The EC2 instance stops at 4am and starts at 9pm, America/Chicago time
+(matching when the server's actually active), via an EventBridge
+Scheduler schedule invoking a small Lambda (`discord-bot-ec2-scheduler`)
+that calls `ec2:StopInstances`/`StartInstances`. A stopped instance costs
+nothing for compute, only the EBS volume (~$1.60/month for 20GB) --
+meaningful savings against a limited promotional credit if the box isn't
+needed 24/7.
+
+No Elastic IP is attached, since AWS bills idle Elastic IPs hourly too
+(a stopped instance has nothing to attach one to) -- there's no cost
+advantage over the ephemeral public IP, which simply disappears while
+stopped and gets reassigned on each start. The start half of the Lambda
+writes the new IP to SSM Parameter Store instead:
+```bash
+aws ssm get-parameter --name /discord-bot/current-ip --query 'Parameter.Value' --output text
+```
+k3s is installed as a systemd service (enabled at boot), so the whole
+stack -- k3s itself, every pod, the gateway's Discord connection --
+comes back on its own after a scheduled start with no manual
+intervention; confirmed by a live stop/start test.
+
 ## Architecture notes
 
 - All database writes funnel through `services/db/database/db.py`'s single
