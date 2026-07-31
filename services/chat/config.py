@@ -17,7 +17,9 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:1b")
 # Keep replies short (Discord messages, not essays) and bound generation
 # time on a small model.
 NUM_PREDICT = 80
-REQUEST_TIMEOUT_SECONDS = 20
+# Generous margin: a cold model load (post keep_alive-unload) plus generation
+# has been observed taking 11-20s+ under this box's shared 2 vCPUs.
+REQUEST_TIMEOUT_SECONDS = 45
 
 # Unload the model shortly after replying instead of Ollama's 5-minute
 # default -- on a memory-tight box, minimizing how long the model sits
