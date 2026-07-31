@@ -57,10 +57,10 @@ class DBClient:
         data, _ = await self._get("/inhouse/queue")
         return data
 
-    async def create_match(self, captain_a: str, captain_b: str, draft_method: str, team_a: list, team_b: list) -> dict:
+    async def create_match(self, captain_a: str, captain_b: str, draft_method: str, team_a: list, team_b: list, map_name: str | None = None) -> dict:
         data, _ = await self._post("/inhouse/matches", {
             "captain_a": captain_a, "captain_b": captain_b, "draft_method": draft_method,
-            "team_a": team_a, "team_b": team_b,
+            "team_a": team_a, "team_b": team_b, "map": map_name,
         })
         return data
 

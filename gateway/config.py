@@ -35,3 +35,12 @@ INHOUSE_VOTING_TIMEOUT_SECONDS = 10 * 60
 INHOUSE_CHANNEL_SWEEP_INTERVAL_MINUTES = 30
 INHOUSE_CHANNEL_MAX_AGE_HOURS = 3
 INHOUSE_CHANNEL_DELETE_GRACE_SECONDS = 30
+
+# Current Valorant competitive map pool -- Riot rotates this periodically,
+# so update this list by hand when maps get added/removed from rotation.
+INHOUSE_MAP_POOL = ["Ascent", "Bind", "Haven", "Icebox", "Lotus", "Pearl", "Split", "Sunset", "Abyss"]
+INHOUSE_MAP_VOTE_TIMEOUT_SECONDS = 2 * 60
+
+# Fake player IDs for /inhouse debug-fill -- small sequential ints, guaranteed
+# to never collide with a real Discord snowflake (always 17+ digits).
+INHOUSE_TEST_PLAYER_IDS = [str(i) for i in range(1, 10)]

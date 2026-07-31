@@ -24,7 +24,7 @@ spec:
                     values: ["core"]
       containers:
         - name: inhouse-service
-          image: inhouse-service:v2
+          image: inhouse-service:v3
           imagePullPolicy: Never
           ports:
             - containerPort: 8080

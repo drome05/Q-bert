@@ -12,6 +12,7 @@ from database import db
 # previous run (or a fresh schema.sql CREATE TABLE) already added it.
 COLUMN_MIGRATIONS = [
     ("guild_settings", "twitch_announcements_channel_id", "TEXT"),
+    ("inhouse_matches", "map", "TEXT"),
 ]
 
 

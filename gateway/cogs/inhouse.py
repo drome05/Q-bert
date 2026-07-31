@@ -17,6 +17,7 @@ to re-queue -- no MMR, coins, or match rows exist yet at that point.
 import asyncio
 import logging
 import random
+from collections import Counter
 from dataclasses import dataclass, field
 
 import discord
@@ -202,6 +203,40 @@ class SnakeDraftSelect(discord.ui.Select):
         await interaction.response.edit_message(content=f"{board}\n\n<@{next_captain}>'s pick:", view=view)
 
 
+class MapVoteSelect(discord.ui.Select):
+    def __init__(self, map_pool: list[str]):
+        options = [discord.SelectOption(label=m) for m in map_pool]
+        super().__init__(placeholder="Vote for a map...", options=options, min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: MapVoteView = self.view
+        view.record_vote(str(interaction.user.id), self.values[0])
+        await interaction.response.send_message(f"Voted for **{self.values[0]}**.", ephemeral=True)
+
+
+class MapVoteView(discord.ui.View):
+    def __init__(self, players: list[str], map_pool: list[str]):
+        super().__init__(timeout=config.INHOUSE_MAP_VOTE_TIMEOUT_SECONDS)
+        self.players = set(players)
+        self.votes: dict[str, str] = {}
+        self.done = asyncio.Event()
+        self.add_item(MapVoteSelect(map_pool))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) not in self.players:
+            await interaction.response.send_message("Only players in this match can vote.", ephemeral=True)
+            return False
+        return True
+
+    def record_vote(self, user_id: str, map_name: str):
+        self.votes[user_id] = map_name
+        if len(self.votes) >= len(self.players):
+            self.done.set()
+
+    async def on_timeout(self):
+        self.done.set()
+
+
 class FinishVoteView(discord.ui.View):
     def __init__(self, cog: "Inhouse", match_id: int, roster: dict[str, str]):
         super().__init__(timeout=config.INHOUSE_VOTING_TIMEOUT_SECONDS)
@@ -223,6 +258,19 @@ class FinishVoteView(discord.ui.View):
             return
 
         result = await inhouse_client.post(f"/matches/{self.match_id}/vote", {"user_id": str(interaction.user.id), "team": team})
+
+        # Test mode: fake players can't click a button, so auto-cast their
+        # votes to match the real tester's choice, one at a time, stopping
+        # as soon as a majority is reached -- avoids waiting on 9 accounts
+        # that don't exist.
+        if result["outcome"] == "pending" and any(uid in config.INHOUSE_TEST_PLAYER_IDS for uid in self.roster):
+            for fake_id in config.INHOUSE_TEST_PLAYER_IDS:
+                if fake_id not in self.roster:
+                    continue
+                result = await inhouse_client.post(f"/matches/{self.match_id}/vote", {"user_id": fake_id, "team": team})
+                if result["outcome"] != "pending":
+                    break
+
         votes_a, votes_b = result["votes_a"], result["votes_b"]
 
         if result["outcome"] == "resolved":
@@ -329,6 +377,40 @@ class Inhouse(commands.Cog):
         names = ", ".join(f"<@{r['user_id']}>" for r in rows) or "empty"
         await interaction.response.send_message(f"Queue ({len(rows)}/{config.INHOUSE_SIZE}): {names}")
 
+    @inhouse_group.command(name="debug-fill", description="Staff: fill the queue with fake test players (join yourself first)")
+    @require_staff()
+    async def debug_fill(self, interaction: discord.Interaction):
+        if self.session is not None:
+            await interaction.response.send_message(embed=embeds.error_embed("A draft is already in progress."), ephemeral=True)
+            return
+
+        await interaction.response.defer()
+        drained = None
+        for fake_id in config.INHOUSE_TEST_PLAYER_IDS:
+            try:
+                result = await inhouse_client.post("/queue/join", {"user_id": fake_id})
+            except ServiceError:
+                continue  # already queued somehow -- skip
+            if result["drained_players"] is not None:
+                drained = result["drained_players"]
+                break
+
+        if drained is None:
+            await interaction.followup.send("Filled the queue with test players but it didn't drain -- make sure you've joined with `/inhouse join` too.")
+            return
+
+        self.session = DraftSession(players=drained, channel_id=interaction.channel_id)
+        await interaction.followup.send(f"[test mode] Queue full: {', '.join(f'<@{p}>' for p in drained)}")
+        await self._auto_resolve_test_draft(interaction.channel, self.session)
+
+    async def _auto_resolve_test_draft(self, channel: discord.abc.Messageable, session: DraftSession):
+        result = await inhouse_client.post("/captains/highest-mmr", {"pool": session.players})
+        session.captains = result["captains"]
+        session.pool = [p for p in session.players if p not in session.captains]
+        session.draft_method = "balanced_mmr"
+        await channel.send(f"[test mode] Captains: <@{session.captains[0]}> and <@{session.captains[1]}> -- draft method: balanced MMR")
+        await self.run_draft(channel, session)
+
     # -- draft flow helpers --------------------------------------------
 
     async def start_draft_method_vote(self, channel: discord.abc.Messageable, session: DraftSession):
@@ -368,10 +450,14 @@ class Inhouse(commands.Cog):
     async def finalize_match(self, channel: discord.abc.Messageable, session: DraftSession):
         team_a = [session.captains[0]] + session.team_a
         team_b = [session.captains[1]] + session.team_b
+        all_players = team_a + team_b
+
+        chosen_map = await self.run_map_vote(channel, all_players)
 
         result = await inhouse_client.post("/matches", {
             "captain_a": session.captains[0], "captain_b": session.captains[1],
             "draft_method": session.draft_method, "team_a": team_a, "team_b": team_b,
+            "map": chosen_map,
         })
         match_id = result["match_id"]
 
@@ -383,9 +469,35 @@ class Inhouse(commands.Cog):
         await self._move_connected_players(guild, team_a, voice_a)
         await self._move_connected_players(guild, team_b, voice_b)
 
-        await text_channel.send(embed=embeds.match_embed(match_id, team_a, team_b, "in_progress"))
+        await text_channel.send(embed=embeds.match_embed(match_id, team_a, team_b, "in_progress", chosen_map))
         await channel.send(f"Match #{match_id} created: {text_channel.mention}")
         self.session = None
+
+    async def run_map_vote(self, channel: discord.abc.Messageable, players: list[str]) -> str:
+        view = MapVoteView(players, config.INHOUSE_MAP_POOL)
+        # Test mode: fake players can't click the dropdown, so pre-cast a
+        # random vote for each so the real tester's own vote alone finishes it.
+        for p in players:
+            if p in config.INHOUSE_TEST_PLAYER_IDS:
+                view.record_vote(p, random.choice(config.INHOUSE_MAP_POOL))
+
+        await channel.send("🗺️ Vote for the map to play:", view=view)
+        await view.done.wait()
+        for child in view.children:
+            child.disabled = True
+
+        chosen = self._tally_map_vote(view.votes, config.INHOUSE_MAP_POOL)
+        note = "" if view.votes else " (no votes -- picked randomly)"
+        await channel.send(f"🗺️ Map picked: **{chosen}**{note}")
+        return chosen
+
+    def _tally_map_vote(self, votes: dict[str, str], map_pool: list[str]) -> str:
+        if not votes:
+            return random.choice(map_pool)
+        counts = Counter(votes.values())
+        top = max(counts.values())
+        winners = [m for m, c in counts.items() if c == top]
+        return random.choice(winners)
 
     async def _create_match_channels(self, guild: discord.Guild, match_id: int, team_a: list[str], team_b: list[str]):
         guild_settings = await settings.get(guild.id)

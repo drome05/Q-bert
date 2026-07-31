@@ -113,7 +113,7 @@ async def balanced_mmr_draft(request):
 @routes.post("/matches")
 async def create_match(request):
     body = await request.json()
-    result = await db.create_match(body["captain_a"], body["captain_b"], body["draft_method"], body["team_a"], body["team_b"])
+    result = await db.create_match(body["captain_a"], body["captain_b"], body["draft_method"], body["team_a"], body["team_b"], body.get("map"))
     return web.json_response(result)
 
 

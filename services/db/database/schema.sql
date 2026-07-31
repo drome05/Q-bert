@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS inhouse_matches (
     reported_by TEXT,
     text_channel_id TEXT,
     voice_channel_a_id TEXT,
-    voice_channel_b_id TEXT
+    voice_channel_b_id TEXT,
+    map TEXT
 );
 
 CREATE TABLE IF NOT EXISTS inhouse_match_players (

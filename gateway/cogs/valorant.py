@@ -144,9 +144,13 @@ class Valorant(commands.Cog):
             embed.add_field(name="ACS", value=str(round(m["acs"], 1)) if m["acs"] is not None else "N/A")
             embed.add_field(name="ADR", value=str(round(m["adr"], 1)) if m["adr"] is not None else "N/A")
             embed.add_field(name="Headshot %", value=f"{round(m['headshot_pct'], 1)}%")
+            if m.get("match_grade"):
+                embed.add_field(name="Grade", value=m["match_grade"])
+            if m.get("tips"):
+                embed.add_field(name="Tips", value="\n".join(m["tips"]), inline=False)
             if m.get("agent_icon"):
                 embed.set_thumbnail(url=m["agent_icon"])
-            embed.set_footer(text=f"{target.display_name}'s Recent Matches — {len(pages) + 1}/{len(match_list)}")
+            embed.set_footer(text=f"{target.display_name}'s Recent Matches — {len(pages) + 1}/{len(match_list)} — Grade/tips are unofficial estimates")
             pages.append(embed)
 
         if len(pages) == 1:

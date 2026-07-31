@@ -42,6 +42,22 @@ def extract_player_match(match: dict, puuid_name: str) -> dict | None:
     # so those are only meaningful for actual round-based modes.
     round_based = rounds_played > 1
 
+    first_bloods = None
+    first_deaths = None
+    if round_based:
+        my_puuid = me.get("puuid")
+        kills_by_round: dict = {}
+        for k in match.get("kills") or []:
+            kills_by_round.setdefault(k.get("round"), []).append(k)
+        first_bloods = 0
+        first_deaths = 0
+        for events in kills_by_round.values():
+            first_kill = min(events, key=lambda e: e.get("kill_time_in_round", 0))
+            if first_kill.get("killer_puuid") == my_puuid:
+                first_bloods += 1
+            if first_kill.get("victim_puuid") == my_puuid:
+                first_deaths += 1
+
     return {
         "map": meta.get("map", "?"),
         "mode": meta.get("mode", "?"),
@@ -58,6 +74,8 @@ def extract_player_match(match: dict, puuid_name: str) -> dict | None:
         "acs": (score / rounds_played) if round_based else None,
         "adr": (damage_made / rounds_played) if round_based else None,
         "headshot_pct": (headshots / max(1, headshots + bodyshots + legshots)) * 100,
+        "first_blood_pct": (first_bloods / rounds_played * 100) if round_based else None,
+        "first_death_pct": (first_deaths / rounds_played * 100) if round_based else None,
     }
 
 
@@ -76,8 +94,48 @@ def compute_grade(rank_idx: int | None, avg_acs: float, kd: float) -> str:
 
     w = config.GRADE_WEIGHTS
     composite = rank_norm * w["rank"] + acs_norm * w["acs"] + kd_norm * w["kd"]
+    return _grade_from_composite(composite)
 
+
+def compute_match_grade(acs: float, kd: float) -> str:
+    acs_norm = _normalize(acs, *config.ACS_NORM_RANGE)
+    kd_norm = _normalize(kd, *config.KD_NORM_RANGE)
+
+    w = config.MATCH_GRADE_WEIGHTS
+    composite = acs_norm * w["acs"] + kd_norm * w["kd"]
+    return _grade_from_composite(composite)
+
+
+def _grade_from_composite(composite: float) -> str:
     for grade, threshold in config.GRADE_THRESHOLDS:
         if composite >= threshold:
             return grade
     return "F"
+
+
+def derive_tips(m: dict) -> list[str]:
+    """Small rule-based tips derived from a single match's stats. Our own
+    heuristics (not official advice) -- thresholds live in config.py.
+    Capped to 2 so the embed stays readable; evaluated in priority order.
+    """
+    kd = (m["kills"] / m["deaths"]) if m["deaths"] else float(m["kills"])
+    tips = []
+
+    if m["first_death_pct"] is not None and m["first_death_pct"] > config.TIP_FIRST_DEATH_PCT_HIGH:
+        tips.append(
+            f"🩸 Dying first in {m['first_death_pct']:.0f}% of rounds -- try holding an angle instead of "
+            "pushing into unclear space, or let a teammate take the opening duel."
+        )
+    if m["kills"] >= config.TIP_MIN_KILLS_FOR_HS_TIP and m["headshot_pct"] < config.TIP_HEADSHOT_PCT_LOW:
+        tips.append(f"🎯 Headshot rate was low ({m['headshot_pct']:.0f}%) -- work on crosshair placement at head height.")
+    if kd < config.TIP_KD_LOW:
+        tips.append(f"📉 Rough K/D this match ({kd:.2f}) -- consider playing a bit more passively for picks instead of forcing duels.")
+    if (
+        m["first_blood_pct"] is not None and m["first_blood_pct"] > config.TIP_FIRST_BLOOD_PCT_HIGH
+        and kd >= config.TIP_KD_GOOD
+    ):
+        tips.append(f"🔥 Strong entry fragging ({m['first_blood_pct']:.0f}% first bloods) -- keep taking those early picks.")
+    if m["adr"] is not None and m["adr"] < config.TIP_ADR_LOW:
+        tips.append(f"💥 Low damage per round ({m['adr']:.0f} ADR) -- look for trade opportunities or utility usage to chip damage.")
+
+    return tips[:2]

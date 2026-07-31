@@ -13,7 +13,7 @@ from aiohttp import web
 import config
 from db_client import DBClient
 from henrikdev_client import AccountNotFoundError, HenrikDevClient, HenrikDevError, rank_index
-from stats import compute_grade, extract_player_match
+from stats import compute_grade, compute_match_grade, derive_tips, extract_player_match
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("valorant-service")
@@ -118,6 +118,14 @@ async def matches(request):
 
     puuid_name = f"{account['riot_name']}#{account['riot_tag']}".lower()
     parsed = [m for m in (extract_player_match(match, puuid_name) for match in match_list) if m is not None]
+    for m in parsed:
+        if m["acs"] is not None:
+            kd = (m["kills"] / m["deaths"]) if m["deaths"] else float(m["kills"])
+            m["match_grade"] = compute_match_grade(m["acs"], kd)
+            m["tips"] = derive_tips(m)
+        else:
+            m["match_grade"] = None
+            m["tips"] = []
 
     return web.json_response({"found": True, "linked": True, "matches": parsed})
 

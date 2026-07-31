@@ -305,6 +305,7 @@ async def inhouse_create_match(request):
     captain_a, captain_b = body["captain_a"], body["captain_b"]
     draft_method = body["draft_method"]
     team_a, team_b = body["team_a"], body["team_b"]
+    map_name = body.get("map")
 
     mmr_before = {}
     for uid in team_a + team_b:
@@ -318,8 +319,8 @@ async def inhouse_create_match(request):
 
     async with db.transaction() as conn:
         cursor = await conn.execute(
-            "INSERT INTO inhouse_matches (captain_a, captain_b, draft_method, status) VALUES (?, ?, ?, 'in_progress')",
-            (captain_a, captain_b, draft_method),
+            "INSERT INTO inhouse_matches (captain_a, captain_b, draft_method, status, map) VALUES (?, ?, ?, 'in_progress', ?)",
+            (captain_a, captain_b, draft_method, map_name),
         )
         match_id = cursor.lastrowid
         for uid in team_a:

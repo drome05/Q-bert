@@ -41,8 +41,10 @@ def inhouse_leaderboard_embed(rows: list[tuple], guild: discord.Guild) -> discor
     return embed
 
 
-def match_embed(match_id: int, team_a: list[str], team_b: list[str], status: str) -> discord.Embed:
+def match_embed(match_id: int, team_a: list[str], team_b: list[str], status: str, map_name: str | None = None) -> discord.Embed:
     embed = discord.Embed(title=f"Inhouse Match #{match_id}", color=discord.Color.blurple())
+    if map_name:
+        embed.add_field(name="Map", value=map_name, inline=False)
     embed.add_field(name="Team A", value="\n".join(f"<@{u}>" for u in team_a) or "—", inline=True)
     embed.add_field(name="Team B", value="\n".join(f"<@{u}>" for u in team_b) or "—", inline=True)
     embed.set_footer(text=f"Status: {status}")
