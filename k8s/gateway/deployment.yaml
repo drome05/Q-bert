@@ -4,8 +4,7 @@ metadata:
   name: gateway
   namespace: gateway
 spec:
-  replicas: 1   # local is primary again while the AWS box recovers from a CPU-credit crunch;
-                # AWS's own gateway should be scaled to 0 once that instance is reachable again
+  replicas: 0   # AWS is primary again; local was only brought up for a demo
   strategy:
     type: Recreate
   selector:
