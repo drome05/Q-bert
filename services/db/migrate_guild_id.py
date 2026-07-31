@@ -146,6 +146,9 @@ def main():
     cur = conn.execute("UPDATE inhouse_matches SET guild_id = ? WHERE guild_id IS NULL", (guild_id,))
     print(f"inhouse_matches: backfilled {cur.rowcount} row(s) with no guild_id")
 
+    cur = conn.execute("UPDATE economy_transactions SET guild_id = ? WHERE guild_id IS NULL", (guild_id,))
+    print(f"economy_transactions: backfilled {cur.rowcount} row(s) with no guild_id")
+
     conn.close()
     print("Migration complete.")
 

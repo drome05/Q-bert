@@ -18,6 +18,7 @@ COLUMN_MIGRATIONS = [
     # DEFAULT -- migrate_guild_id.py backfills real values into any
     # existing rows right after this runs.
     ("inhouse_matches", "guild_id", "TEXT"),
+    ("economy_transactions", "guild_id", "TEXT"),
 ]
 
 

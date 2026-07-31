@@ -26,7 +26,7 @@ spec:
                     values: ["core"]
       containers:
         - name: db-service
-          image: db-service:v4
+          image: db-service:v5
           imagePullPolicy: Never
           ports:
             - containerPort: 8080
