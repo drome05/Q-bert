@@ -7,3 +7,13 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
+
+# Terraform state contains resource details (and, via the private key
+# resource, actual secret key material) -- never commit it. The lock file
+# IS meant to be committed (pins provider versions for reproducible runs).
+terraform/.terraform/
+terraform/.terraform-build/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.*
+terraform/tfplan
+terraform/*.tfplan

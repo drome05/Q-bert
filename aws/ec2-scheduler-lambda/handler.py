@@ -1,8 +1,9 @@
+import os
 import time
 import boto3
 
-INSTANCE_ID = "i-0dbaf0cea0faa5ddf"
-IP_PARAMETER_NAME = "/discord-bot/current-ip"
+INSTANCE_ID = os.environ["INSTANCE_ID"]
+IP_PARAMETER_NAME = os.environ.get("IP_PARAMETER_NAME", "/discord-bot/current-ip")
 
 ec2 = boto3.client("ec2")
 ssm = boto3.client("ssm")
